@@ -101,7 +101,9 @@ docker compose up -d
 
 私密 package 需要先用具备读取权限的 GitHub 身份执行 `docker login ghcr.io`。后续更新时，重新设置 `OCS_BANK_TAG`，再执行 `docker compose pull && docker compose up -d`；也可在 `.env` 中保存 `OCS_BANK_TAG`。未指定 tag 时 Compose 会提示错误。
 
-Compose 将 `config.json` 和 `.env` 只读挂载到同一个 `/config` 目录。容器配置必须保留 `"listen": "0.0.0.0:5000"` 和 `"database": "/data/question_bank.db"`，不要用本地运行示例中的回环监听地址。宿主机默认发布 `0.0.0.0:5000`，可通过 `OCS_BANK_PORT` 修改宿主机端口；宿主机通过 `http://127.0.0.1:5000` 访问，其他设备使用宿主机 IP。非回环监听要求 `.env` 中配置非空的 `OCS_ACCESS_TOKEN`，OCS 请求需携带对应 Bearer 令牌。
+Compose 将 `config.json` 和 `.env` 只读挂载到同一个 `/config` 目录。容器配置必须保留 `"listen": "0.0.0.0:5000"`、`"database": "/data/question_bank.db"` 和 `"access_token_env": "OCS_ACCESS_TOKEN"`，不要用本地运行示例中的回环监听地址。宿主机默认发布 `0.0.0.0:5000`，可通过 `OCS_BANK_PORT` 修改宿主机端口；宿主机通过 `http://127.0.0.1:5000` 访问，其他设备使用宿主机 IP。非回环监听要求 `.env` 中配置非空的 `OCS_ACCESS_TOKEN`，OCS 请求需携带对应 Bearer 令牌。
+
+若启动时报 `non-loopback listen requires access_token_env with a nonempty secret`，检查 `config.json` 是否设置了 `"access_token_env": "OCS_ACCESS_TOKEN"`，再确认其同目录 `.env` 包含非空的 `OCS_ACCESS_TOKEN=你自己设置的服务访问令牌`。`access_token_env` 填的是变量名；它与上游密钥 `AI_API_KEY` 是两项配置。只改 `listen` 或只往 `.env` 添加令牌都不够。该错误发生在 `.env` 解析和 `AI_API_KEY` 校验通过之后，并不代表整个 `.env` 未读取。修改文件后执行 `docker compose up -d --force-recreate bank`，让进程重新加载配置，同时刷新可能被编辑器替换过的单文件挂载。
 
 SQLite 目录显式绑定为 `./data:/data`，宿主机文件为 `./data/question_bank.db`，WAL/SHM 文件也保存在同一目录；重建容器后数据仍在。三个挂载路径必须提前准备好，缺失时直接报错。旧 `compose.yaml` 已由 `docker-compose.yml` 替代；从旧部署升级前，先停止旧容器并备份、导出原 `bank-data` 命名卷中的数据到 `./data`，再调整目录及已有数据库文件的属主为 `65532:65532`，避免新容器使用空数据库。
 
