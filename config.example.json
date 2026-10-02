@@ -4,7 +4,6 @@
   "protocol": "chat",
   "base_url": "https://api.siliconflow.cn/v1",
   "model": "configure-your-model",
-  "api_key_env": "AI_API_KEY",
   "timeout_seconds": 60,
   "max_concurrent": 4,
   "max_pending": 64,

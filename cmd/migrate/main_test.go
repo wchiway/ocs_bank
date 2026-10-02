@@ -28,8 +28,10 @@ func TestApplySafeguards(t *testing.T) {
 	if err = run([]string{"-source", source}); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("IMPORT_TEST_KEY", "not-a-real-key")
-	cfg := map[string]any{"database": source, "model": "test", "base_url": "https://example.com/v1", "api_key_env": "IMPORT_TEST_KEY"}
+	if err = os.WriteFile(filepath.Join(dir, ".env"), []byte("AI_API_KEY=not-a-real-key\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := map[string]any{"database": source, "model": "test", "base_url": "https://example.com/v1"}
 	p := filepath.Join(dir, "config.json")
 	b, _ := json.Marshal(cfg)
 	os.WriteFile(p, b, 0600)
