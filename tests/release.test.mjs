@@ -113,12 +113,36 @@ process.exit(2);
 import { packageMetadata } from '../.github/scripts/package-metadata.mjs';
 test('GHCR metadata keeps channels separate and validates image identifiers',()=>{
  const sha='a'.repeat(40);
- assert.deepEqual(packageMetadata('Owner/Repo','v1.2.3','release',sha),{image:'ghcr.io/owner/repo:v1.2.3',commit:sha});
- assert.equal(packageMetadata('Owner/Repo','v1.2.3-rc.1','prerelease',sha).image,'ghcr.io/owner/repo:v1.2.3-rc.1');
+ assert.deepEqual(packageMetadata('Owner/Repo','v1.2.3','release',sha),{image:'ghcr.io/owner/repo:v1.2.3',tags:'ghcr.io/owner/repo:v1.2.3,ghcr.io/owner/repo:latest',commit:sha});
+ for(const tag of ['v1.2.3-rc.1','v1.2.3-beta.2','v1.2.3-alpha.1']) {
+  const image=`ghcr.io/owner/repo:${tag}`;
+  assert.deepEqual(packageMetadata('Owner/Repo',tag,'prerelease',sha),{image,tags:image,commit:sha});
+ }
  assert.throws(()=>packageMetadata('Owner/Repo','v1.2.3-rc.1','release',sha));
  assert.throws(()=>packageMetadata('Owner/Repo\nsecret=x','v1.2.3','release',sha));
  assert.throws(()=>packageMetadata('Owner/Repo','v1.2.3','release','invalid'));
  assert.throws(()=>packageMetadata('Owner/Repo','v1.2.3-'+ 'a'.repeat(128),'prerelease',sha));
+});
+test('package metadata exports build tags and summary for each release channel',()=>{
+ const script=fileURLToPath(new URL('../.github/scripts/package-metadata.mjs',import.meta.url));
+ for(const channel of ['release','prerelease']) {
+  const dir=mkdtempSync(join(tmpdir(),'ocs-package-metadata-test-'));
+  try {
+   const tag=channel==='release'?'v1.2.3':'v1.2.3-rc.1',commit='b'.repeat(40);
+   const image=`ghcr.io/owner/repo:${tag}`;
+   const tags=channel==='release'?`${image},ghcr.io/owner/repo:latest`:image;
+   mkdirSync(join(dir,'.release'));
+   writeFileSync(join(dir,'.release','metadata.json'),JSON.stringify({tag,channel,commit}));
+   const output=join(dir,'output'),summary=join(dir,'summary');
+   const result=spawnSync(process.execPath,[script],{cwd:dir,encoding:'utf8',env:{...process.env,GITHUB_REPOSITORY:'Owner/Repo',GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:summary}});
+   assert.equal(result.status,0,result.stderr);
+   const values=Object.fromEntries(readFileSync(output,'utf8').trim().split('\n').map(line=>line.split('=')));
+   assert.deepEqual(values,{image,tags,commit});
+   const text=readFileSync(summary,'utf8');
+   assert(text.includes(image));
+   assert.equal(text.includes('ghcr.io/owner/repo:latest'),channel==='release');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+ }
 });
 test('package publication is independent of AI summary success',()=>{
  for(const name of ['release','pre-release']){
