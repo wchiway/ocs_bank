@@ -94,7 +94,7 @@ cp .env.example .env
 mkdir -p data
 # Linux 宿主机：镜像以 UID/GID 65532 运行，需要能写入数据目录。
 sudo chown 65532:65532 data
-export OCS_BANK_TAG=v0.1.0 # 示例；替换为 Packages 中已发布的 tag。
+export OCS_BANK_TAG=v0.1.0-rc.1 # 示例；替换为需要部署的已发布 tag。
 docker compose pull
 docker compose up -d
 ```
