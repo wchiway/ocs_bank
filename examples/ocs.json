@@ -1,0 +1,12 @@
+[
+  {
+    "name": "OCS Bank",
+    "homepage": "https://github.com/wchiway/ocs_bank",
+    "url": "http://127.0.0.1:5000/api/query",
+    "method": "get",
+    "type": "GM_xmlhttpRequest",
+    "contentType": "json",
+    "data": {"title": "${title}", "options": "${options}", "type": "${type}"},
+    "handler": "return (res) => res && res.success && res.data && res.data.code === 1 && typeof res.data.data === 'string' && res.data.data.trim() ? [undefined, res.data.data] : undefined;"
+  }
+]

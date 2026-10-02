@@ -1,5 +1,13 @@
 # Go 重构计划
 
+## 实施进度
+
+- P0：计划已通过 PR #1 合并。
+- P1：Go 骨架、接口契约、AGENTS 工作流及 CI 已通过 PR #2 合并。
+- P2：三种上游协议及异常处理已通过 PR #3 合并。
+- P3：SQLite、缓存、并发协调与集成测试已通过 PR #4 合并。
+- P4：迁移工具、部署文件、OCS 示例与进程测试在当前 PR 交付。现场真实凭据/浏览器联调见 docs/validation.md。
+
 ## 目标与范围
 
 采用 Go、chi/v5、database/sql、modernc.org/sqlite 和标准库 net/http、encoding/json、log/slog，构建单实例题库服务。保留 OCS GET /api/query 的 title、options、type 参数及响应兼容性。第一版实现同步文本问答，不包含管理 UI、多模态、工具执行、流式输出或微服务。

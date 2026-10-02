@@ -1,0 +1,9 @@
+{
+  "listen": "0.0.0.0:5000",
+  "database": "/data/question_bank.db",
+  "protocol": "chat",
+  "base_url": "https://api.siliconflow.cn/v1",
+  "model": "configure-your-model",
+  "api_key_env": "AI_API_KEY",
+  "access_token_env": "OCS_ACCESS_TOKEN"
+}
