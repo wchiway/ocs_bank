@@ -1,0 +1,34 @@
+name: Summarize published release
+description: Update an existing release using DeepSeek Responses
+inputs:
+  channel:
+    description: release or prerelease
+    required: true
+  tag:
+    description: Existing version tag
+    required: true
+  github-token:
+    description: Token with contents write permission
+    required: true
+  deepseek-api-key:
+    description: DeepSeek API secret
+    required: false
+  deepseek-model:
+    description: Responses model
+    default: deepseek-v4-flash
+runs:
+  using: composite
+  steps:
+    - name: Prepare version notes
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ inputs.tag }}
+        RELEASE_CHANNEL: ${{ inputs.channel }}
+      run: node .github/scripts/release.mjs prepare
+    - name: Summarize with DeepSeek
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        DEEPSEEK_API_KEY: ${{ inputs.deepseek-api-key }}
+        DEEPSEEK_MODEL: ${{ inputs.deepseek-model }}
+      run: node .github/scripts/release.mjs summarize

@@ -1,0 +1,29 @@
+name: Publish versioned release
+description: Validate and create a source-only GitHub Release
+inputs:
+  channel:
+    description: release or prerelease
+    required: true
+  tag:
+    description: Existing semantic version tag
+    required: true
+  github-token:
+    description: Token with contents write permission
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Validate tag and main ancestry
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ inputs.tag }}
+        RELEASE_CHANNEL: ${{ inputs.channel }}
+      run: node .github/scripts/release.mjs prepare
+    - name: Test release automation
+      shell: bash
+      run: node --test tests/release.test.mjs
+    - name: Create source release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: node .github/scripts/release.mjs publish

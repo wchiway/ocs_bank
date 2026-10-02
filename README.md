@@ -114,3 +114,7 @@ node --test tests/ocs.test.mjs
 Node.js 仅用于验证 OCS 的 JavaScript handler，不是服务运行依赖。Go 测试覆盖三协议模拟上游、SQLite、并发取消、迁移，以及真实服务进程的认证/缓存重启/优雅退出。CI 同时构建无 CGO 二进制和容器镜像。
 
 测试不使用真实 AI 密钥。真实服务商与浏览器 OCS 的现场联调需在部署环境完成，见 [docs/validation.md](docs/validation.md)。
+
+## 版本发布
+
+推送正式版本 tag（如 `v0.1.0`）自动创建 Release；推送预发布 tag（如 `v0.1.0-rc.1`）自动创建 Pre-release。Release 附件仅使用 GitHub 自动生成的 Source code（zip/tar.gz）；创建 Release 后，并行发布 `ghcr.io/wchiway/ocs_bank:<tag>` 多架构镜像到 GitHub Packages，以及通过 DeepSeek Responses API 生成中文版本总结。需配置 Actions Secret `DEEPSEEK_API_KEY`，详见 [docs/releases.md](docs/releases.md)。

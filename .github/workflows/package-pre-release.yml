@@ -1,0 +1,40 @@
+name: Package pre-release
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Version tag already published as a GitHub Release
+        required: true
+        type: string
+    outputs:
+      image:
+        description: Versioned GHCR image reference
+        value: ${{ jobs.publish.outputs.image }}
+      digest:
+        description: Multi-platform image digest
+        value: ${{ jobs.publish.outputs.digest }}
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image: ${{ steps.package.outputs.image }}
+      digest: ${{ steps.package.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/publish-package
+        id: package
+        with:
+          tag: ${{ inputs.tag }}
+          channel: prerelease
+          github-token: ${{ github.token }}
