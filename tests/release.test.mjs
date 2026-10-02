@@ -100,7 +100,7 @@ process.exit(2);
    writeFileSync(join(dir,'.release','metadata.json'),JSON.stringify({tag,prerelease,commit:'abc',marker}));
    writeFileSync(join(dir,'.release','notes.md'),marker+'\noriginal notes');
    const state=join(dir,'release.json');
-   const run=()=>spawnSync(process.execPath,[script,'publish'],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,FAKE_GH_STATE:state,GITHUB_REPOSITORY:'fixture/repo'}});
+   const run=()=>spawnSync(process.execPath,[script,'publish'],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,FAKE_GH_STATE:state,GITHUB_REPOSITORY:'fixture/repo',GITHUB_STEP_SUMMARY:''}});
    let r=run();assert.equal(r.status,0,r.stderr);
    const release=JSON.parse(readFileSync(state,'utf8'));assert.equal(release.prerelease,prerelease);assert.equal(release.make_latest,prerelease?'false':'legacy');
    release.body+='\nmanual note';writeFileSync(state,JSON.stringify(release));
