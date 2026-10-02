@@ -1,0 +1,15 @@
+{
+  "listen": "127.0.0.1:5000",
+  "database": "question_bank.db",
+  "protocol": "chat",
+  "base_url": "https://api.siliconflow.cn/v1",
+  "model": "configure-your-model",
+  "api_key_env": "AI_API_KEY",
+  "timeout_seconds": 60,
+  "max_concurrent": 4,
+  "max_pending": 64,
+  "max_retries": 2,
+  "max_tokens": 1024,
+  "requests_per_minute": 120,
+  "cache_ttl_hours": 720
+}

@@ -10,4 +10,4 @@
 - Provider tests use `httptest` fixtures; database tests use temporary files. CI must not require real API credentials.
 - Never commit API keys, live configuration, database contents, or logs containing credentials.
 
-The existing `AGENTS.md` describes the legacy Python code and is retained unchanged. The target Go architecture and acceptance criteria are in `docs/go-rewrite-plan.md`; this workflow applies to all new work.
+`AGENTS.md` defines the mandatory workflow and Go development rules. The target Go architecture and acceptance criteria are in `docs/go-rewrite-plan.md`; this workflow applies to all new work.
