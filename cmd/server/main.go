@@ -6,7 +6,9 @@ import (
 	"flag"
 	"github.com/wchiway/ocs_bank/internal/config"
 	"github.com/wchiway/ocs_bank/internal/httpapi"
+	"github.com/wchiway/ocs_bank/internal/provider"
 	"github.com/wchiway/ocs_bank/internal/question"
+	"github.com/wchiway/ocs_bank/internal/store"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,11 +17,6 @@ import (
 	"time"
 )
 
-type pendingService struct{}
-
-func (pendingService) Query(context.Context, question.Question) (question.Result, error) {
-	return question.Result{}, question.ErrUnavailable
-}
 func main() {
 	if err := run(); err != nil {
 		slog.Error("server stopped", "error", err)
@@ -36,7 +33,24 @@ func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	h := httpapi.New(pendingService{}, httpapi.Options{Token: c.AccessToken, Timeout: c.Timeout(), RequestsPerMinute: c.RequestsPerMinute, Logger: logger})
+	initCtx, initCancel := context.WithTimeout(ctx, 10*time.Second)
+	db, err := store.Open(initCtx, c.Database, time.Duration(c.CacheTTLHours)*time.Hour)
+	initCancel()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ai, err := provider.New(c)
+	if err != nil {
+		return err
+	}
+	defer ai.Close()
+	service, err := question.NewService(ctx, db, ai, question.ServiceOptions{Namespace: ai.Namespace(), Timeout: c.Timeout(), MaxConcurrent: c.MaxConcurrent, MaxPending: c.MaxPending, Logger: logger})
+	if err != nil {
+		return err
+	}
+	defer service.Close()
+	h := httpapi.New(service, httpapi.Options{Token: c.AccessToken, Timeout: c.Timeout(), RequestsPerMinute: c.RequestsPerMinute, Logger: logger})
 	srv := &http.Server{Addr: c.Listen, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: c.Timeout() + 5*time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 128 << 10}
 	done := make(chan error, 1)
 	go func() { done <- srv.ListenAndServe() }()
