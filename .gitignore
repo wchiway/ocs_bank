@@ -10,5 +10,6 @@ __pycache__/
 *.pyc
 /bin/
 /coverage.out
+/data/
 
 /.release/

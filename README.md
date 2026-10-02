@@ -85,16 +85,27 @@ SQLite 自动应用版本化迁移，使用 WAL、5 秒锁等待和单连接池�
 
 将单条缓存失效：`UPDATE answers SET invalidated=1 WHERE cache_key=?`（使用 SQLite 客户端绑定参数）。失效后下一次查询会重新生成。过期记录不会自动删除，可在维护窗口清理。
 
-容器部署：
+容器部署使用 [docker-compose.yml](docker-compose.yml)，直接拉取 GitHub Packages 的 `ghcr.io/wchiway/ocs_bank` 镜像，无需本地构建。先在 [Packages](https://github.com/wchiway/ocs_bank/pkgs/container/ocs_bank) 选择已发布的完整版本 tag（包含 `v` 和预发布后缀）；发布流程不提供 `latest`。若还没有镜像，先按 [版本发布流程](docs/releases.md) 发布版本。
 
 ```bash
 cp examples/container.json config.json
 cp .env.example .env
 # 修改模型等配置，在 .env 填写 AI_API_KEY 与 OCS_ACCESS_TOKEN。
-docker compose up -d --build
+mkdir -p data
+# Linux 宿主机：镜像以 UID/GID 65532 运行，需要能写入数据目录。
+sudo chown 65532:65532 data
+export OCS_BANK_TAG=v0.1.0 # 示例；替换为 Packages 中已发布的 tag。
+docker compose pull
+docker compose up -d
 ```
 
-Compose 将 `config.json` 和 `.env` 只读挂载到同一个 `/config` 目录，只发布本机端口，使用持久卷保存 SQLite。容器内以非 root 用户运行；对公网提供服务时使用 HTTPS 反向代理，保留访问令牌，不暴露数据库。代理超时应大于查询总超时。服务响应 SIGINT/SIGTERM，取消模型调用并进行最长 10 秒的 HTTP 退出等待。
+私密 package 需要先用具备读取权限的 GitHub 身份执行 `docker login ghcr.io`。后续更新时，重新设置 `OCS_BANK_TAG`，再执行 `docker compose pull && docker compose up -d`；也可在 `.env` 中保存 `OCS_BANK_TAG`。未指定 tag 时 Compose 会提示错误。
+
+Compose 将 `config.json` 和 `.env` 只读挂载到同一个 `/config` 目录。容器配置必须保留 `"listen": "0.0.0.0:5000"` 和 `"database": "/data/question_bank.db"`，不要用本地运行示例中的回环监听地址。宿主机默认发布 `0.0.0.0:5000`，可通过 `OCS_BANK_PORT` 修改宿主机端口；宿主机通过 `http://127.0.0.1:5000` 访问，其他设备使用宿主机 IP。非回环监听要求 `.env` 中配置非空的 `OCS_ACCESS_TOKEN`，OCS 请求需携带对应 Bearer 令牌。
+
+SQLite 目录显式绑定为 `./data:/data`，宿主机文件为 `./data/question_bank.db`，WAL/SHM 文件也保存在同一目录；重建容器后数据仍在。三个挂载路径必须提前准备好，缺失时直接报错。旧 `compose.yaml` 已由 `docker-compose.yml` 替代；从旧部署升级前，先停止旧容器并备份、导出原 `bank-data` 命名卷中的数据到 `./data`，再调整目录及已有数据库文件的属主为 `65532:65532`，避免新容器使用空数据库。
+
+容器内以非 root 用户运行；对公网提供服务时使用 HTTPS 反向代理，保留访问令牌，不暴露数据库。代理超时应大于查询总超时。服务响应 SIGINT/SIGTERM，取消模型调用并进行最长 10 秒的 HTTP 退出等待。
 
 旧 Python 数据迁移与回退见 [docs/migration.md](docs/migration.md)。旧代码只保存在本地 `legacy/python` 和原 upstream，历史包含凭据，禁止推送到新仓库。
 

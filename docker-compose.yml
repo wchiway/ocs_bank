@@ -1,0 +1,27 @@
+services:
+  bank:
+    # Release workflows publish version tags, not a shared latest tag.
+    image: ghcr.io/wchiway/ocs_bank:${OCS_BANK_TAG:?Set OCS_BANK_TAG to a published release tag}
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:${OCS_BANK_PORT:-5000}:5000"
+    volumes:
+      - type: bind
+        source: ./config.json
+        target: /config/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./.env
+        target: /config/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      # Persist the database and its WAL/SHM files together on the host.
+      - type: bind
+        source: ./data
+        target: /data
+        bind:
+          create_host_path: false
+    stop_grace_period: 15s
