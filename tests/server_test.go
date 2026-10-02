@@ -31,7 +31,7 @@ func TestServerBinary(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"answer\":\"yes\"}"}}]}`)
 	}))
 	defer up.Close()
-	cfg := map[string]any{"listen": "", "database": filepath.Join(dir, "bank.db"), "protocol": "chat", "base_url": up.URL + "/v1", "model": "test", "api_key_env": "OCS_BINARY_TEST_KEY", "access_token_env": "OCS_BINARY_TEST_ACCESS", "timeout_seconds": 2}
+	cfg := map[string]any{"listen": "", "database": filepath.Join(dir, "bank.db"), "protocol": "chat", "base_url": up.URL + "/v1", "model": "test", "access_token_env": "OCS_BINARY_TEST_ACCESS", "timeout_seconds": 2}
 	client := &http.Client{Timeout: time.Second}
 	start := func() (string, func()) {
 		t.Helper()
@@ -48,7 +48,10 @@ func TestServerBinary(t *testing.T) {
 			t.Fatal(err)
 		}
 		cmd := exec.Command(binary, "-config", path)
-		cmd.Env = append(os.Environ(), "OCS_BINARY_TEST_KEY=sentinel-api-key", "OCS_BINARY_TEST_ACCESS=sentinel-access-token")
+		if err = os.WriteFile(filepath.Join(dir, ".env"), []byte("AI_API_KEY=sentinel-api-key\nOCS_BINARY_TEST_ACCESS=sentinel-access-token\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cmd.Env = os.Environ()
 		var logs bytes.Buffer
 		cmd.Stdout = &logs
 		cmd.Stderr = &logs

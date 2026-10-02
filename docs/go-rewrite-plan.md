@@ -42,7 +42,7 @@ migrations/              # 版本化 SQL
 | message | POST /v1/messages | model、messages、顶层 system、max_tokens；x-api-key、anthropic-version | content 中 text 块；检查 stop_reason，不把 thinking/tool_use 当答案 |
 | response | POST /v1/responses | model、input、instructions；Bearer | 遍历 output 中 message 的 output_text 内容块；检查 status、error、incomplete_details 和 refusal |
 
-统一配置包含 protocol、base_url、model、api_key_env、请求总超时、最大并发、重试上限和可选 endpoint_path。base_url 定义为 API 根路径（例如 https://host/v1），适配器只追加资源路径，测试覆盖尾斜杠、子路径及重复 /v1。endpoint_path 的覆盖规则必须明确并验证。密钥由环境变量引用，不写入示例配置。
+统一配置包含 protocol、base_url、model、请求总超时、最大并发、重试上限和可选 endpoint_path。base_url 定义为 API 根路径（例如 https://host/v1），适配器只追加资源路径，测试覆盖尾斜杠、子路径及重复 /v1。endpoint_path 的覆盖规则必须明确并验证。API 密钥固定从配置文件同目录的 `.env` 中读取 `AI_API_KEY`，不在 JSON 配置中指定密钥或变量名。
 
 不同协议分别维护请求 DTO、鉴权和错误解析，不通过换 URL 复用同一 payload。token 上限、结构化输出、temperature 等参数按协议和已配置模型能力发送，不能盲目转发所有参数。Responses 使用原始 HTTP JSON 的 output 数组，不依赖 SDK 的 output_text 便捷属性。
 

@@ -8,6 +8,9 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
+
+	"github.com/joho/godotenv"
 	"strings"
 	"time"
 )
@@ -20,7 +23,6 @@ type Config struct {
 	BaseURL            string `json:"base_url"`
 	EndpointPath       string `json:"endpoint_path"`
 	Model              string `json:"model"`
-	APIKeyEnv          string `json:"api_key_env"`
 	AccessTokenEnv     string `json:"access_token_env"`
 	TimeoutSeconds     int    `json:"timeout_seconds"`
 	MaxConcurrent      int    `json:"max_concurrent"`
@@ -34,7 +36,7 @@ type Config struct {
 }
 
 func Load(path string) (Config, error) {
-	c := Config{Listen: "127.0.0.1:5000", Database: "question_bank.db", Protocol: "chat", APIKeyEnv: "AI_API_KEY", TimeoutSeconds: 60, MaxConcurrent: 4, MaxPending: 64, MaxRetries: 2, MaxTokens: 1024, RequestsPerMinute: 120, CacheTTLHours: 720}
+	c := Config{Listen: "127.0.0.1:5000", Database: "question_bank.db", Protocol: "chat", TimeoutSeconds: 60, MaxConcurrent: 4, MaxPending: 64, MaxRetries: 2, MaxTokens: 1024, RequestsPerMinute: 120, CacheTTLHours: 720}
 	f, err := os.Open(path)
 	if err != nil {
 		return c, err
@@ -49,8 +51,22 @@ func Load(path string) (Config, error) {
 	if d.Decode(&extra) != io.EOF {
 		return c, errors.New("configuration must contain one JSON object")
 	}
-	c.APIKey = os.Getenv(c.APIKeyEnv)
-	c.AccessToken = os.Getenv(c.AccessTokenEnv)
+	secrets, err := godotenv.Read(filepath.Join(filepath.Dir(path), ".env"))
+	if err != nil {
+		// Parser errors can contain secret values. Never include their raw text.
+		if errors.Is(err, os.ErrNotExist) {
+			return c, errors.New(".env file is required beside the configuration file")
+		}
+		return c, errors.New("cannot read or parse .env file beside the configuration file")
+	}
+	c.APIKey = secrets["AI_API_KEY"]
+	if strings.TrimSpace(c.APIKey) == "" {
+		return c, errors.New("AI_API_KEY must be set in .env")
+	}
+	c.AccessToken, _ = secrets[c.AccessTokenEnv]
+	if _, exists := secrets[c.AccessTokenEnv]; !exists {
+		c.AccessToken = os.Getenv(c.AccessTokenEnv)
+	}
 	if err = c.Validate(); err != nil {
 		return c, err
 	}
@@ -94,7 +110,7 @@ func (c *Config) Validate() error {
 		return errors.New("non-loopback listen requires access_token_env with a nonempty secret")
 	}
 	if strings.TrimSpace(c.Model) == "" || strings.TrimSpace(c.APIKey) == "" || c.Database == "" {
-		return errors.New("model, database and API key environment variable are required")
+		return errors.New("model, database and API key are required")
 	}
 	if c.AccessTokenEnv != "" && c.AccessToken == "" {
 		return errors.New("access token environment variable is empty")

@@ -4,11 +4,9 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:5000:5000"
-    environment:
-      AI_API_KEY: ${AI_API_KEY:?set AI_API_KEY}
-      OCS_ACCESS_TOKEN: ${OCS_ACCESS_TOKEN:?set OCS_ACCESS_TOKEN}
     volumes:
       - ./config.json:/config/config.json:ro
+      - ./.env:/config/.env:ro
       - bank-data:/data
     stop_grace_period: 15s
 volumes:

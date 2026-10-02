@@ -32,7 +32,7 @@ go run ./cmd/migrate -source /tmp/ocs-legacy-backup.db
 go run ./cmd/migrate -source /tmp/ocs-legacy-backup.db -config config.json -apply -reviewed
 ```
 
-`-apply` 必须同时提供 `-reviewed`。读取服务配置需要相应密钥环境变量，但导入过程不发起任何模型请求。导入在单个事务内完成，任何插入错误都会回滚；已有缓存键不覆盖。重复执行不会增加重复记录。
+`-apply` 必须同时提供 `-reviewed`。读取服务配置需要其同目录 `.env` 中的 `AI_API_KEY`，但导入过程不发起任何模型请求。导入在单个事务内完成，任何插入错误都会回滚；已有缓存键不覆盖。重复执行不会增加重复记录。
 
 导入来源标记为 `legacy-reviewed`，历史模型标记为 `unknown`，采用当前配置 TTL。不要把它误认为新模型重新生成的答案。
 

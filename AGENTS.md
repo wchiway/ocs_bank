@@ -24,4 +24,4 @@ Run `go build ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...`
 
 ## PR and Security Requirements
 
-Describe behavior changes, related issues, validation results, and OCS compatibility impacts. Never commit API keys, live configuration, databases, or sensitive logs. Verify TLS, bound upstream calls, and never cache errors as answers. Keep `main` and inactive worktrees clean.
+Describe behavior changes, related issues, validation results, and OCS compatibility impacts. API keys come from `AI_API_KEY` in `.env` beside the JSON configuration; never add API key settings to JSON. Commit only the empty `.env.example` template. Never commit API keys, live configuration, databases, or sensitive logs. Verify TLS, bound upstream calls, and never cache errors as answers. Keep `main` and inactive worktrees clean.
