@@ -1,39 +1,27 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Required Development Workflow
 
-This Python service provides an OCS-compatible question-bank API backed by SQLite and SiliconFlow.
+Follow **worktree → task branch → PR → merge** for every change, including documentation.
 
-- `main.py`: Flask application factory, database initialization, and `GET /api/query`; checks cached answers before querying AI and storing results.
-- `utils/aiAnwser.py`: model requests, prompts, and retries. Preserve this existing filename when importing it.
-- `config.json`: server host, port, and provider API key.
-- `question_bank.db`: local answer database.
-- `test_app.py` and `test_api.py`: manual HTTP checks at the repository root.
-- `requirements.txt` and `README.md`: dependencies and setup instructions. There are no separate frontend assets or build directories.
+- `main` is the integration branch. Never develop or commit directly on it.
+- Fetch `origin`, then create a separate worktree and task branch: `git worktree add -b feat/short-description .worktrees/short-description origin/main`.
+- Use `feat/`, `fix/`, `docs/`, or `test/` branches and focused, imperative commits.
+- Push only the task branch; open a PR targeting `main` with `gh pr create`.
+- Review the diff and pass applicable checks before `gh pr merge --squash`. Update local `main` only by fast-forwarding merged changes.
+- Start each phase from updated `origin/main` in its own worktree. Never use `git push --all` or `--mirror`: local `legacy/python` contains historical credentials and must remain local.
+- GitHub currently refuses private-repository branch protection on this account's plan (HTTP 403). This limitation does not waive the PR workflow.
 
-## Build, Test, and Development Commands
+## Project Structure
 
-Run commands from the repository root; configuration and database paths are relative to the working directory. Use an isolated Python environment.
+The Go rewrite uses chi and SQLite. `cmd/server` assembles the service; `internal/config`, `httpapi`, `question`, `provider`, and `store` separate configuration, HTTP contracts, business logic, AI protocols, and persistence. `migrations` holds versioned SQL. See `docs/go-rewrite-plan.md` for phases and acceptance criteria. Legacy Python lives on `legacy/python`, not `main`.
 
-- `python -m pip install -r requirements.txt`: install pinned dependencies.
-- `python main.py`: initialize SQLite tables and start the Flask development server using `config.json`.
-- `python test_app.py`: run three sample requests, including an empty title, against port 5000; start the server first.
-- `python test_api.py`: open an interactive query tester using the configured port.
+## Build, Style, and Tests
 
-There is no separate build step.
+Use `gofmt`, idiomatic Go names, small interfaces at dependency boundaries, parameterized SQL, and context-aware HTTP/database calls. Keep provider-specific payloads out of business logic.
 
-## Coding Style & Naming Conventions
+Run `go build ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...` before implementation PRs. Place `*_test.go` alongside code. Use `httptest` upstreams and temporary SQLite files; automated tests must not require real credentials. Documentation-only changes require diff checks.
 
-Use four-space indentation, `snake_case` functions and variables, and uppercase configuration constants such as `API_CONFIG`. Follow existing UTF-8 text and Chinese comments where appropriate. Keep SQL parameterized with `?` placeholders and close database connections reliably. No formatter or linter is configured; keep changes focused and avoid unrelated reformatting.
+## PR and Security Requirements
 
-## Testing Guidelines
-
-Current tests print responses rather than assert outcomes; no testing framework or coverage threshold is configured. Inspect HTTP status and JSON manually. Check missing-title rejection, cached answers, AI fallback, and provider failures when relevant. Name additional checks `test_*.py`. Live queries may call SiliconFlow and modify SQLite; use disposable data and mock provider calls for automated tests.
-
-## Commit & Pull Request Guidelines
-
-Recent commits mostly use `m`, so no meaningful commit convention is established. Use concise, imperative messages describing the change. PRs should explain behavior changes, link relevant issues, and list validation commands and results. Include request/response examples for API changes.
-
-## Security & Configuration
-
-Never commit real API keys or incidental database changes. Provider debug output currently includes authorization headers; redact logs before sharing. Keep the development server, which enables Flask debug mode, local.
+Describe behavior changes, related issues, validation results, and OCS compatibility impacts. Never commit API keys, live configuration, databases, or sensitive logs. Verify TLS, bound upstream calls, and never cache errors as answers. Keep `main` and inactive worktrees clean.
