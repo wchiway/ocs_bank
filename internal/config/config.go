@@ -13,23 +13,24 @@ import (
 )
 
 type Config struct {
-	Listen            string `json:"listen"`
-	Database          string `json:"database"`
-	Protocol          string `json:"protocol"`
-	BaseURL           string `json:"base_url"`
-	EndpointPath      string `json:"endpoint_path"`
-	Model             string `json:"model"`
-	APIKeyEnv         string `json:"api_key_env"`
-	AccessTokenEnv    string `json:"access_token_env"`
-	TimeoutSeconds    int    `json:"timeout_seconds"`
-	MaxConcurrent     int    `json:"max_concurrent"`
-	MaxPending        int    `json:"max_pending"`
-	MaxRetries        int    `json:"max_retries"`
-	MaxTokens         int    `json:"max_tokens"`
-	RequestsPerMinute int    `json:"requests_per_minute"`
-	CacheTTLHours     int    `json:"cache_ttl_hours"`
-	APIKey            string `json:"-"`
-	AccessToken       string `json:"-"`
+	ChatTokenParameter string `json:"chat_token_parameter"`
+	Listen             string `json:"listen"`
+	Database           string `json:"database"`
+	Protocol           string `json:"protocol"`
+	BaseURL            string `json:"base_url"`
+	EndpointPath       string `json:"endpoint_path"`
+	Model              string `json:"model"`
+	APIKeyEnv          string `json:"api_key_env"`
+	AccessTokenEnv     string `json:"access_token_env"`
+	TimeoutSeconds     int    `json:"timeout_seconds"`
+	MaxConcurrent      int    `json:"max_concurrent"`
+	MaxPending         int    `json:"max_pending"`
+	MaxRetries         int    `json:"max_retries"`
+	MaxTokens          int    `json:"max_tokens"`
+	RequestsPerMinute  int    `json:"requests_per_minute"`
+	CacheTTLHours      int    `json:"cache_ttl_hours"`
+	APIKey             string `json:"-"`
+	AccessToken        string `json:"-"`
 }
 
 func Load(path string) (Config, error) {
@@ -56,6 +57,12 @@ func Load(path string) (Config, error) {
 	return c, nil
 }
 func (c *Config) Validate() error {
+	if c.ChatTokenParameter == "" {
+		c.ChatTokenParameter = "max_tokens"
+	}
+	if c.ChatTokenParameter != "max_tokens" && c.ChatTokenParameter != "max_completion_tokens" {
+		return errors.New("invalid chat_token_parameter")
+	}
 	switch c.Protocol {
 	case "chat", "chat_completions":
 		c.Protocol = "chat_completions"
