@@ -1,0 +1,12 @@
+.worktrees/
+.env
+.env.*
+!.env.example
+config.json
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+*.pyc
+/bin/
+/coverage.out
