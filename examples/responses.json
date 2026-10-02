@@ -1,0 +1,8 @@
+{
+  "listen": "127.0.0.1:5000",
+  "database": "question_bank.db",
+  "protocol": "response",
+  "base_url": "https://api.openai.com/v1",
+  "model": "configure-your-model",
+  "api_key_env": "AI_API_KEY"
+}
