@@ -117,4 +117,4 @@ Node.js 仅用于验证 OCS 的 JavaScript handler，不是服务运行依赖。
 
 ## 版本发布
 
-推送正式版本 tag（如 `v0.1.0`）自动创建 Release；推送预发布 tag（如 `v0.1.0-rc.1`）自动创建 Pre-release。仅使用 GitHub 自动生成的 Source code（zip/tar.gz），不构建或上传二进制；Release 创建后通过 DeepSeek Responses API 生成中文版本总结。需配置 Actions Secret `DEEPSEEK_API_KEY`，详见 [docs/releases.md](docs/releases.md)。
+推送正式版本 tag（如 `v0.1.0`）自动创建 Release；推送预发布 tag（如 `v0.1.0-rc.1`）自动创建 Pre-release。Release 附件仅使用 GitHub 自动生成的 Source code（zip/tar.gz）；创建 Release 后，并行发布 `ghcr.io/wchiway/ocs_bank:<tag>` 多架构镜像到 GitHub Packages，以及通过 DeepSeek Responses API 生成中文版本总结。需配置 Actions Secret `DEEPSEEK_API_KEY`，详见 [docs/releases.md](docs/releases.md)。

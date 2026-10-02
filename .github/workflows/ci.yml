@@ -28,3 +28,13 @@ jobs:
       - run: CGO_ENABLED=0 go build -o /tmp/ocs-bank ./cmd/server
       - run: docker build -t ocs-bank:ci .
       - run: docker run --rm ocs-bank:ci -h
+      - uses: docker/setup-buildx-action@v4
+      - name: Validate multi-platform package build without publishing
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=package-ci
+          cache-to: type=gha,mode=max,scope=package-ci

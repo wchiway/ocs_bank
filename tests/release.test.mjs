@@ -109,3 +109,24 @@ process.exit(2);
   } finally {rmSync(dir,{recursive:true,force:true});}
  }
 });
+
+import { packageMetadata } from '../.github/scripts/package-metadata.mjs';
+test('GHCR metadata keeps channels separate and validates image identifiers',()=>{
+ const sha='a'.repeat(40);
+ assert.deepEqual(packageMetadata('Owner/Repo','v1.2.3','release',sha),{image:'ghcr.io/owner/repo:v1.2.3',commit:sha});
+ assert.equal(packageMetadata('Owner/Repo','v1.2.3-rc.1','prerelease',sha).image,'ghcr.io/owner/repo:v1.2.3-rc.1');
+ assert.throws(()=>packageMetadata('Owner/Repo','v1.2.3-rc.1','release',sha));
+ assert.throws(()=>packageMetadata('Owner/Repo\nsecret=x','v1.2.3','release',sha));
+ assert.throws(()=>packageMetadata('Owner/Repo','v1.2.3','release','invalid'));
+ assert.throws(()=>packageMetadata('Owner/Repo','v1.2.3-'+ 'a'.repeat(128),'prerelease',sha));
+});
+test('package publication is independent of AI summary success',()=>{
+ for(const name of ['release','pre-release']){
+  const workflow=readFileSync(new URL(`../.github/workflows/${name}.yml`,import.meta.url),'utf8');
+  assert(workflow.includes('package:\n    needs: publish'));
+  assert(workflow.includes('summary:\n    needs: publish'));
+  assert(workflow.includes(`uses: ./.github/workflows/package-${name}.yml`));
+  const linked=readFileSync(new URL(`../.github/workflows/package-${name}.yml`,import.meta.url),'utf8');
+  assert(linked.includes('workflow_call:'));assert(linked.includes('packages: write'));
+ }
+});
