@@ -32,7 +32,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: ./.github/actions/publish-package
+      - name: Publish version tag and latest
+        uses: ./.github/actions/publish-package
         id: package
         with:
           tag: ${{ inputs.tag }}

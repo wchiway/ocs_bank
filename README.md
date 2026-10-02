@@ -85,7 +85,7 @@ SQLite 自动应用版本化迁移，使用 WAL、5 秒锁等待和单连接池�
 
 将单条缓存失效：`UPDATE answers SET invalidated=1 WHERE cache_key=?`（使用 SQLite 客户端绑定参数）。失效后下一次查询会重新生成。过期记录不会自动删除，可在维护窗口清理。
 
-容器部署使用 [docker-compose.yml](docker-compose.yml)，直接拉取 GitHub Packages 的 `ghcr.io/wchiway/ocs_bank:latest` 镜像，无需本地构建或设置版本变量。[Packages](https://github.com/wchiway/ocs_bank/pkgs/container/ocs_bank) 中需要已存在 `latest` 标签；当前 [版本发布流程](docs/releases.md) 只发布完整版本 tag，`latest` 需另行发布。
+容器部署使用 [docker-compose.yml](docker-compose.yml)，直接拉取 GitHub Packages 的 `ghcr.io/wchiway/ocs_bank:latest` 镜像，无需本地构建或设置版本变量。[版本发布流程](docs/releases.md) 在正式发布时同时推送完整版本 tag 和 `latest`；预发布只推送完整预发布 tag，不更新 `latest`。首次使用前需成功发布一个包含此流程的正式版本。
 
 ```bash
 cp examples/container.json config.json

@@ -46,7 +46,7 @@ runs:
         file: ./Dockerfile
         platforms: linux/amd64,linux/arm64
         push: true
-        tags: ${{ steps.metadata.outputs.image }}
+        tags: ${{ steps.metadata.outputs.tags }}
         labels: |
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
           org.opencontainers.image.version=${{ inputs.tag }}

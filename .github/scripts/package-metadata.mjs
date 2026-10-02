@@ -8,7 +8,10 @@ export function packageMetadata(repo, tag, channel, commit) {
   validateChannel(tag, channel);
   if (tag.length > 128) throw new Error('Version exceeds container tag length limit');
   if (!/^[0-9a-f]{40}$/.test(commit ?? '')) throw new Error('Invalid release commit');
-  return { image: `ghcr.io/${repo.toLowerCase()}:${tag}`, commit };
+  const name = `ghcr.io/${repo.toLowerCase()}`;
+  const image = `${name}:${tag}`;
+  const tags = channel === 'release' ? `${image},${name}:latest` : image;
+  return { image, tags, commit };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
@@ -16,6 +19,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const output = packageMetadata(process.env.GITHUB_REPOSITORY, meta.tag, meta.channel, meta.commit);
     if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT is required');
     for (const [key, value] of Object.entries(output)) appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
-    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Container image: \`${output.image}\`\n`);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Container image tags: ${output.tags.split(',').map(tag => `\`${tag}\``).join(', ')}\n`);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -61,10 +61,13 @@ GitHub Packages 单独发布容器镜像，使用现有 Dockerfile，为 Linux a
 
 ```bash
 docker pull ghcr.io/wchiway/ocs_bank:v0.1.0
+docker pull ghcr.io/wchiway/ocs_bank:latest
 docker pull ghcr.io/wchiway/ocs_bank:v0.1.0-rc.1
 ```
 
-两个通道保留完整版本号，包括预发布后缀，不更新共享的 `latest` 镜像别名。仓库所有者和仓库名会转换为小写。每个镜像带有 source、version、revision OCI 标签，package workflow 输出镜像引用和 digest。访问私密 package 时，客户端需使用具备读取权限的 GitHub 身份登录 GHCR。
+正式版在同一次多架构构建中推送完整版本号和 `latest`，两者指向同一份镜像；预发布只推送完整预发布版本号，不更新 `latest`。`latest` 随正式版镜像发布更新，重跑旧正式版也会覆盖该别名，需要固定版本时使用完整版本 tag。已有旧 tag 的发布流程不会因 `main` 更新而改变，首次生成 `latest` 需发布包含此变更的新正式版本。
+
+仓库所有者和仓库名会转换为小写。每个镜像带有 source、version、revision OCI 标签，package workflow 继续输出带完整版本号的镜像引用和 digest。访问私密 package 时，客户端需使用具备读取权限的 GitHub 身份登录 GHCR。
 
 Dockerfile 在构建平台原生编译，并使用 TARGETOS/TARGETARCH 生成目标架构程序；镜像内保持非 root 用户。`.env`、数据库、运行配置和发布临时文件均从 Docker 上下文排除。
 
