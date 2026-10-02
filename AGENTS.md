@@ -25,3 +25,9 @@ Run `go build ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...`
 ## PR and Security Requirements
 
 Describe behavior changes, related issues, validation results, and OCS compatibility impacts. API keys come from `AI_API_KEY` in `.env` beside the JSON configuration; never add API key settings to JSON. Commit only the empty `.env.example` template. Never commit API keys, live configuration, databases, or sensitive logs. Verify TLS, bound upstream calls, and never cache errors as answers. Keep `main` and inactive worktrees clean.
+
+## Secret File Access Prohibition
+
+Agents must not read `.env` or other real dotenv secret files, directly or indirectly, including through tools, scripts, searches, subprocesses, or delegated agents. Do not print, copy, upload, or request their contents. Do not run the application, `config.Load`, or diagnostic commands against real configuration if that would load a secret file. Runtime application loading of `.env` remains intentional; this restriction applies to agent access during development and troubleshooting.
+
+Use source code, explicitly whitelisted non-secret configuration fields, sanitized diagnostics, and isolated tests with agent-created dummy credentials. Tests may use temporary synthetic dotenv fixtures, but must never access user secret files. Only the empty `.env.example` template may be inspected or committed.
