@@ -14,6 +14,9 @@ func (s *SQLite) GetReviewed(ctx context.Context, q question.Question) (question
 		return r, question.ErrNotFound
 	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return r, ctx.Err()
+		}
 		return r, errors.Join(question.ErrStorage, err)
 	}
 	r.Cached, r.Reviewed = true, true

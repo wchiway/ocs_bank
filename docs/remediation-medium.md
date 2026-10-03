@@ -2,6 +2,8 @@
 
 依赖：先完成 [高优先级方案](remediation-high.md)。每个阶段从更新的 origin/main 创建 worktree，检查通过后用 PR squash merge。
 
+实施：M1、M2、M3 已实现。运行诊断和独立维护命令见 [maintenance.md](maintenance.md)，发布行为见 [releases.md](releases.md)。测试覆盖合成 WAL 备份恢复、清理预览与批次、诊断脱敏、并发计数和旧版本提升保护；未操作生产数据库或发布真实版本。
+
 ## M1：可诊断的日志与运行指标
 
 - 统一有限集合的结果分类：invalid、not_found、refused、auth、rate_limit、busy、timeout、canceled、protocol、storage、unavailable。

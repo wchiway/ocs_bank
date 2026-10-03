@@ -122,6 +122,28 @@ func TestServerBinary(t *testing.T) {
 	if status, body := query(base, true); status != 200 || !strings.Contains(body, `"data":"yes"`) {
 		t.Fatal(status, body)
 	}
+	statsReq, _ := http.NewRequest("GET", base+"/api/stats", nil)
+	statsReq.Header.Set("Authorization", "Bearer sentinel-access-token")
+	statsResp, err := client.Do(statsReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stats struct {
+		Counters map[string]int64 `json:"counters"`
+	}
+	err = json.NewDecoder(statsResp.Body).Decode(&stats)
+	statsResp.Body.Close()
+	if err != nil || statsResp.StatusCode != 200 || stats.Counters["upstream_calls_total"] != 1 || stats.Counters["upstream_usage_unknown_total"] != 1 {
+		t.Fatal(stats, err)
+	}
+	readyResp, err := client.Get(base + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyResp.Body.Close()
+	if readyResp.StatusCode != 200 {
+		t.Fatal(readyResp.StatusCode)
+	}
 	stop()
 	base, stop = start()
 	if status, body := query(base, true); status != 200 || !strings.Contains(body, `"source":"public"`) {

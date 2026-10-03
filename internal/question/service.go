@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/wchiway/ocs_bank/internal/telemetry"
 )
 
 type ServiceOptions struct {
@@ -14,6 +16,7 @@ type ServiceOptions struct {
 	MaxConcurrent int
 	MaxPending    int
 	Logger        *slog.Logger
+	Metrics       *telemetry.Metrics
 }
 type flight struct {
 	done     chan struct{}
@@ -50,6 +53,9 @@ func (s *Service) Close() { s.mu.Lock(); s.cancel(); s.mu.Unlock(); s.wg.Wait() 
 func (s *Service) Query(ctx context.Context, q Question) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	defer cancel()
+	if err := s.ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	q, err := q.Normalize()
 	if err != nil {
 		return Result{}, err
@@ -75,6 +81,9 @@ func (s *Service) Query(ctx context.Context, q Question) (Result, error) {
 		return Result{}, ErrBusy
 	}
 	c := s.flights[key]
+	if c != nil {
+		s.options.Metrics.Add("shared_waiters_total", 1)
+	}
 	if c == nil {
 		shared, cancel := context.WithTimeout(s.ctx, s.options.Timeout)
 		c = &flight{done: make(chan struct{}), cancel: cancel}
@@ -121,13 +130,24 @@ func (s *Service) run(ctx context.Context, key string, q Question, c *flight) {
 	close(c.done)
 	s.mu.Unlock()
 }
-func (s *Service) generate(ctx context.Context, key string, q Question) (Result, error) {
+func (s *Service) generate(ctx context.Context, key string, q Question) (result Result, err error) {
+	queued := time.Now()
+	var wait, generation time.Duration
+	defer func() {
+		s.options.Logger.Info("generation", "queue_ms", wait.Milliseconds(), "generation_ms", generation.Milliseconds(), "result", ErrorCategory(err))
+	}()
+	s.options.Metrics.Add("pending_generations", 1)
+	defer s.options.Metrics.Add("pending_generations", -1)
 	select {
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
 	case <-ctx.Done():
+		wait = time.Since(queued)
+		s.options.Metrics.ObserveDuration("queue", wait)
 		return Result{}, ctx.Err()
 	}
+	wait = time.Since(queued)
+	s.options.Metrics.ObserveDuration("queue", wait)
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
@@ -137,7 +157,12 @@ func (s *Service) generate(ctx context.Context, key string, q Question) (Result,
 	} else if !errors.Is(err, ErrNotFound) {
 		return Result{}, err
 	}
+	start := time.Now()
+	s.options.Metrics.Add("active_generations", 1)
 	r, err := s.generator.Generate(ctx, q)
+	s.options.Metrics.Add("active_generations", -1)
+	generation = time.Since(start)
+	s.options.Metrics.ObserveDuration("generation", generation)
 	if err != nil {
 		return Result{}, err
 	}
@@ -150,6 +175,7 @@ func (s *Service) generate(ctx context.Context, key string, q Question) (Result,
 	}
 	r.Cached = false
 	if err = s.repo.Put(ctx, key, q, r); err != nil {
+		s.options.Metrics.Add("cache_write_failures_total", 1)
 		s.options.Logger.Error("cache write failed", "category", "storage")
 	}
 	return r, nil

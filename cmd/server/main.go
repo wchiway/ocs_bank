@@ -9,6 +9,7 @@ import (
 	"github.com/wchiway/ocs_bank/internal/provider"
 	"github.com/wchiway/ocs_bank/internal/question"
 	"github.com/wchiway/ocs_bank/internal/store"
+	"github.com/wchiway/ocs_bank/internal/telemetry"
 	"log/slog"
 	"net/http"
 	"os"
@@ -40,17 +41,23 @@ func run() error {
 		return err
 	}
 	defer db.Close()
-	ai, err := provider.NewObserved(c, db, logger)
+	metrics := &telemetry.Metrics{}
+	ai, err := provider.NewObserved(c, telemetry.CountingRecorder{Next: db, Metrics: metrics}, logger)
 	if err != nil {
 		return err
 	}
 	defer ai.Close()
-	service, err := question.NewService(ctx, db, ai, question.ServiceOptions{Namespace: ai.Namespace(), Timeout: c.Timeout(), MaxConcurrent: c.MaxConcurrent, MaxPending: c.MaxPending, Logger: logger})
+	service, err := question.NewService(ctx, db, ai, question.ServiceOptions{Namespace: ai.Namespace(), Timeout: c.Timeout(), MaxConcurrent: c.MaxConcurrent, MaxPending: c.MaxPending, Logger: logger, Metrics: metrics})
 	if err != nil {
 		return err
 	}
 	defer service.Close()
-	h := httpapi.New(service, httpapi.Options{Token: c.AccessToken, Timeout: c.Timeout(), RequestsPerMinute: c.RequestsPerMinute, Logger: logger})
+	h := httpapi.New(service, httpapi.Options{Token: c.AccessToken, Timeout: c.Timeout(), RequestsPerMinute: c.RequestsPerMinute, Logger: logger, Metrics: metrics, Ready: func(check context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return db.Ping(check)
+	}})
 	srv := &http.Server{Addr: c.Listen, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: c.Timeout() + 5*time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 128 << 10}
 	done := make(chan error, 1)
 	go func() { done <- srv.ListenAndServe() }()

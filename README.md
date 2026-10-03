@@ -77,7 +77,7 @@ go build -o bin/ocs-migrate ./cmd/migrate
 {"success":true,"data":{"code":1,"data":"2","msg":"AI回答","source":"ai"}}
 ```
 
-缓存命中时 `source` 为 `public`。未找到或模型拒答返回 HTTP 200 和 `data.code=0, data.data=null`。参数错误为 400，访问令牌错误为 401，本地限流为 429，上游失败为 502，容量不足或上游限流为 503，超时为 504。错误正文不包含上游密钥或内部错误信息。
+本地缓存或人工题库命中时 `source` 为 `public`。未找到或模型拒答返回 HTTP 200 和 `data.code=0, data.data=null`。参数错误为 400，访问令牌错误为 401，本地限流为 429，上游失败为 502，容量不足、上游限流或数据库故障为 503，超时为 504。错误正文不包含上游密钥或内部错误信息。
 
 ## 数据和部署
 
@@ -89,7 +89,7 @@ SQLite 自动应用版本化迁移，使用 WAL、5 秒锁等待和单连接池�
 
 `upstream_calls` 独立记录每次 HTTP 尝试（含重试、失败）的时间、模型、协议、结果与可获得的 token 用量。缓存命中不增加调用；覆盖答案不会覆盖历史调用。用量缺失记为 NULL，不能当作零费用；记录不包含题目、答案、响应体、端点或密钥。数据库写入失败时保留有效答案并输出脱敏错误，统计不是服务商账单。
 
-将单条缓存失效：`UPDATE answers SET invalidated=1 WHERE cache_key=?`（使用 SQLite 客户端绑定参数）。失效后下一次查询会重新生成。过期记录不会自动删除，可在维护窗口清理。
+将单条 AI 缓存失效：`UPDATE answers SET invalidated=1 WHERE cache_key=?`（使用 SQLite 客户端绑定参数）。失效后下一次查询优先查询人工题库，再按需生成。过期记录不会自动删除；独立 `ocs-maintain` 支持统计、清理预览、分批删除、一致性备份和恢复到新文件，不加载服务配置或密钥。`/api/stats` 提供进程运行指标，`/readyz` 提供数据库就绪检查。使用方法见 [维护文档](docs/maintenance.md)。
 
 容器部署使用 [docker-compose.yml](docker-compose.yml)，直接拉取 GitHub Packages 的 `ghcr.io/wchiway/ocs_bank:latest` 镜像，无需本地构建或设置版本变量。[版本发布流程](docs/releases.md) 在正式发布时同时推送完整版本 tag 和 `latest`；预发布只推送完整预发布 tag，不更新 `latest`。首次使用前需成功发布一个包含此流程的正式版本。
 

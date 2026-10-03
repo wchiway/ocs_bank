@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/wchiway/ocs_bank/internal/telemetry"
 )
 
 type memory struct {
@@ -16,6 +18,25 @@ type memory struct {
 	values    map[string]Result
 	failWrite bool
 	writes    int
+}
+
+func TestGenerationMetricsAndClosedCache(t *testing.T) {
+	m := &memory{values: map[string]Result{}, failWrite: true}
+	s := service(t, m, generatorFunc(func(context.Context, Question) (Result, error) { return Result{Answer: "yes"}, nil }), 1, 2)
+	metrics := &telemetry.Metrics{}
+	s.options.Metrics = metrics
+	if _, err := s.Query(context.Background(), Question{Title: "q"}); err != nil {
+		t.Fatal(err)
+	}
+	v := metrics.Snapshot()
+	if v["cache_write_failures_total"] != 1 || v["generation_count"] != 1 || v["queue_count"] != 1 || v["pending_generations"] != 0 || v["active_generations"] != 0 {
+		t.Fatal(v)
+	}
+	s.Close()
+	m.values[(Question{Title: "cached"}).Key("test")] = Result{Answer: "cached"}
+	if _, err := s.Query(context.Background(), Question{Title: "cached"}); !errors.Is(err, context.Canceled) {
+		t.Fatal("closed service accepted cache hit", err)
+	}
 }
 
 func (m *memory) Get(ctx context.Context, k string) (Result, error) {
