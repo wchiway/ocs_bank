@@ -18,9 +18,10 @@ var (
 	ErrAuth        = errors.New("upstream authentication failed")
 	ErrRateLimit   = errors.New("upstream rate limited")
 	ErrRefused     = errors.New("upstream refused request")
+	ErrStorage     = errors.New("storage unavailable")
 )
 
-const PromptVersion = "answer-v1"
+const PromptVersion = "answer-v2"
 
 type Question struct {
 	Title   string `json:"title"`
@@ -63,6 +64,7 @@ type Result struct {
 	InputTokens  int64
 	OutputTokens int64
 	Cached       bool
+	Reviewed     bool
 }
 type Querier interface {
 	Query(context.Context, Question) (Result, error)
@@ -73,4 +75,8 @@ type Generator interface {
 type Repository interface {
 	Get(context.Context, string) (Result, error)
 	Put(context.Context, string, Question, Result) error
+}
+
+type ReviewedRepository interface {
+	GetReviewed(context.Context, Question) (Result, error)
 }

@@ -40,7 +40,7 @@ func run() error {
 		return err
 	}
 	defer db.Close()
-	ai, err := provider.New(c)
+	ai, err := provider.NewObserved(c, db, logger)
 	if err != nil {
 		return err
 	}

@@ -11,6 +11,8 @@ import (
 //go:embed *.sql
 var files embed.FS
 
+const Version = 2
+
 func Apply(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -24,18 +26,19 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&version); err != nil {
 		return err
 	}
-	if version > 1 {
+	if version > Version {
 		return fmt.Errorf("unsupported database schema version %d", version)
 	}
-	if version == 0 {
-		script, err := files.ReadFile("001_answers.sql")
+	for next := version + 1; next <= Version; next++ {
+		name := map[int]string{1: "001_answers.sql", 2: "002_reviewed_calls.sql"}[next]
+		script, err := files.ReadFile(name)
 		if err != nil {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, string(script)); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES (1)`); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES (?)`, next); err != nil {
 			return err
 		}
 	}

@@ -26,15 +26,15 @@ go run ./cmd/migrate -source /tmp/ocs-legacy-backup.db
 
 ## 3. 审阅后导入
 
-先备份已有 Go 数据库。目标由 `config.json` 的 `database` 指定，必须与源文件不同（包含硬链接检测）。配置使用实际部署的协议、端点和模型，以生成正确的缓存命名空间。
+先备份已有 Go 数据库。目标由 `config.json` 的 `database` 指定，必须与源文件不同（包含硬链接检测）。人工答案的身份不绑定协议、端点、模型或提示词版本。
 
 ```bash
 go run ./cmd/migrate -source /tmp/ocs-legacy-backup.db -config config.json -apply -reviewed
 ```
 
-`-apply` 必须同时提供 `-reviewed`。读取服务配置需要其同目录 `.env` 中的 `AI_API_KEY`，但导入过程不发起任何模型请求。导入在单个事务内完成，任何插入错误都会回滚；已有缓存键不覆盖。重复执行不会增加重复记录。
+`-apply` 必须同时提供 `-reviewed`。读取服务配置需要其同目录 `.env` 中的 `AI_API_KEY`，但导入过程不发起任何模型请求。预检和导入都校验题型格式。导入在单个事务内完成，任何插入错误都会回滚；已有人工答案不覆盖，普通 AI 缓存不阻挡导入。重复执行不会增加重复记录。
 
-导入来源标记为 `legacy-reviewed`，历史模型标记为 `unknown`，采用当前配置 TTL。不要把它误认为新模型重新生成的答案。
+导入写入 `reviewed_answers`，来源为 `legacy-reviewed`，不采用缓存 TTL。不要把它误认为新模型重新生成的答案。schema v2 将旧的同来源记录中未显式失效、同题答案一致的组迁入人工表；冲突保留原记录待复核，普通 AI 记录不迁入。
 
 ## 4. 切换与回退
 
