@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/wchiway/ocs_bank/internal/config"
 	"github.com/wchiway/ocs_bank/internal/legacy"
-	"github.com/wchiway/ocs_bank/internal/provider"
 	"github.com/wchiway/ocs_bank/internal/store"
 	"os"
 	"path/filepath"
@@ -60,17 +59,12 @@ func run(args []string) error {
 		if statErr != nil && !os.IsNotExist(statErr) {
 			return statErr
 		}
-		ai, err := provider.New(c)
-		if err != nil {
-			return err
-		}
-		defer ai.Close() // Configuration/namespace only; no model request.
 		db, err := store.Open(ctx, c.Database, time.Duration(c.CacheTTLHours)*time.Hour)
 		if err != nil {
 			return err
 		}
 		defer db.Close()
-		report.Imported, err = db.Import(ctx, ai.Namespace(), items)
+		report.Imported, err = db.Import(ctx, items)
 		if err != nil {
 			return err
 		}

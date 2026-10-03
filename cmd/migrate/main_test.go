@@ -50,7 +50,7 @@ func TestApplySafeguards(t *testing.T) {
 	}
 	defer target.Close()
 	var n int
-	if err = target.QueryRow(`SELECT count(*) FROM answers WHERE source='legacy-reviewed'`).Scan(&n); err != nil || n != 1 {
+	if err = target.QueryRow(`SELECT count(*) FROM reviewed_answers WHERE source='legacy-reviewed'`).Scan(&n); err != nil || n != 1 {
 		t.Fatal(n, err)
 	}
 }

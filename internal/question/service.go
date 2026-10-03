@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 )
@@ -59,7 +58,7 @@ func (s *Service) Query(ctx context.Context, q Question) (Result, error) {
 		return Result{}, err
 	}
 	key := q.Key(s.options.Namespace)
-	cached, err := s.repo.Get(ctx, key)
+	cached, err := s.lookup(ctx, key, q)
 	if err == nil {
 		return cached, nil
 	}
@@ -133,7 +132,7 @@ func (s *Service) generate(ctx context.Context, key string, q Question) (Result,
 		return Result{}, err
 	}
 	// Another completed request may have populated SQLite while this call queued.
-	if cached, err := s.repo.Get(ctx, key); err == nil {
+	if cached, err := s.lookup(ctx, key, q); err == nil {
 		return cached, nil
 	} else if !errors.Is(err, ErrNotFound) {
 		return Result{}, err
@@ -145,13 +144,37 @@ func (s *Service) generate(ctx context.Context, key string, q Question) (Result,
 	if err = ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	r.Answer = strings.TrimSpace(r.Answer)
-	if r.Answer == "" || len(r.Answer) > 32768 {
-		return Result{}, ErrProtocol
+	r.Answer, err = ValidateAnswer(q, r.Answer)
+	if err != nil {
+		return Result{}, err
 	}
 	r.Cached = false
 	if err = s.repo.Put(ctx, key, q, r); err != nil {
 		s.options.Logger.Error("cache write failed", "category", "storage")
+	}
+	return r, nil
+}
+
+func (s *Service) lookup(ctx context.Context, key string, q Question) (Result, error) {
+	if reviewed, ok := s.repo.(ReviewedRepository); ok {
+		r, err := reviewed.GetReviewed(ctx, q)
+		if err == nil {
+			r.Answer, err = ValidateAnswer(q, r.Answer)
+			if err == nil {
+				return r, nil
+			}
+			s.options.Logger.Warn("invalid reviewed answer", "category", "protocol")
+		} else if !errors.Is(err, ErrNotFound) {
+			return Result{}, err
+		}
+	}
+	r, err := s.repo.Get(ctx, key)
+	if err != nil {
+		return Result{}, err
+	}
+	r.Answer, err = ValidateAnswer(q, r.Answer)
+	if err != nil {
+		return Result{}, ErrNotFound
 	}
 	return r, nil
 }

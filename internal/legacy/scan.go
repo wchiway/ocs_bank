@@ -84,6 +84,12 @@ func Scan(ctx context.Context, path string) (Report, []Candidate, error) {
 		case strings.HasPrefix(a, "{") || strings.HasPrefix(a, "```"):
 			reason = "unparsed_answer"
 		}
+		if reason == "" {
+			a, err = question.ValidateAnswer(q, a)
+			if err != nil {
+				reason = "invalid_answer_format"
+			}
+		}
 		if reason != "" {
 			report.Invalid++
 			report.Reasons[reason]++

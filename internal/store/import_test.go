@@ -21,22 +21,29 @@ func TestImportAtomicAndPreservesExisting(t *testing.T) {
 	if err = s.Put(ctx, q.Key("ns"), q, question.Result{Answer: "new"}); err != nil {
 		t.Fatal(err)
 	}
-	if n, e := s.Import(ctx, "ns", items); e != nil || n != 0 {
+	if n, e := s.Import(ctx, items); e != nil || n != 1 {
 		t.Fatal(n, e)
 	}
-	r, e := s.Get(ctx, q.Key("ns"))
-	if e != nil || r.Answer != "new" {
+	r, e := s.GetReviewed(ctx, q)
+	if e != nil || r.Answer != "old" {
+		t.Fatal(r, e)
+	}
+	items[0].Answer = "replacement"
+	if n, e := s.Import(ctx, items); e != nil || n != 0 {
+		t.Fatal(n, e)
+	}
+	if r, e := s.GetReviewed(ctx, q); e != nil || r.Answer != "old" {
 		t.Fatal(r, e)
 	}
 	items[0].Question.Title = "new question"
 	items = append(items, legacy.Candidate{Question: question.Question{Title: "bad"}, Answer: ""})
-	if _, e = s.Import(ctx, "ns", items); e == nil {
+	if _, e = s.Import(ctx, items); e == nil {
 		t.Fatal("invalid import accepted")
 	}
-	if _, e = s.Get(ctx, items[0].Question.Key("ns")); e != question.ErrNotFound {
+	if _, e = s.GetReviewed(ctx, items[0].Question); e != question.ErrNotFound {
 		t.Fatal("partial import committed", e)
 	}
-	if n, e := s.Import(ctx, "ns", items[:1]); e != nil || n != 1 {
+	if n, e := s.Import(ctx, items[:1]); e != nil || n != 1 {
 		t.Fatal(n, e)
 	}
 }
