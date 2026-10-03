@@ -28,6 +28,7 @@ jobs:
       - run: CGO_ENABLED=0 go build -o /tmp/ocs-bank ./cmd/server
       - run: docker build -t ocs-bank:ci .
       - run: docker run --rm ocs-bank:ci -h
+      - run: docker run --rm --entrypoint /maintain ocs-bank:ci -h
       - uses: docker/setup-buildx-action@v4
       - name: Validate multi-platform package build without publishing
         uses: docker/build-push-action@v7

@@ -10,7 +10,8 @@ export function packageMetadata(repo, tag, channel, commit) {
   if (!/^[0-9a-f]{40}$/.test(commit ?? '')) throw new Error('Invalid release commit');
   const name = `ghcr.io/${repo.toLowerCase()}`;
   const image = `${name}:${tag}`;
-  const tags = channel === 'release' ? `${image},${name}:latest` : image;
+  // latest is promoted by digest in a separate, serialized job after building.
+  const tags = image;
   return { image, tags, commit };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

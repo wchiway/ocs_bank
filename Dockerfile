@@ -5,11 +5,12 @@ RUN go mod download
 COPY . .
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/server ./cmd/server && mkdir -p /out/data
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/server ./cmd/server && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/maintain ./cmd/maintain && mkdir -p /out/data
 
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /out/server /server
+COPY --from=build /out/maintain /maintain
 COPY --from=build --chown=65532:65532 /out/data /data
 USER 65532:65532
 WORKDIR /data

@@ -15,8 +15,9 @@ import (
 )
 
 type SQLite struct {
-	db  *sql.DB
-	ttl time.Duration
+	db     *sql.DB
+	ttl    time.Duration
+	schema int
 }
 
 func Open(ctx context.Context, path string, ttl time.Duration) (*SQLite, error) {
@@ -50,9 +51,10 @@ func Open(ctx context.Context, path string, ttl time.Duration) (*SQLite, error) 
 		db.Close()
 		return nil, err
 	}
-	return &SQLite{db: db, ttl: ttl}, nil
+	return &SQLite{db: db, ttl: ttl, schema: migrations.Version}, nil
 }
-func (s *SQLite) Close() error { return s.db.Close() }
+func (s *SQLite) Close() error                   { return s.db.Close() }
+func (s *SQLite) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 func (s *SQLite) Get(ctx context.Context, key string) (question.Result, error) {
 	var r question.Result
 	err := s.db.QueryRowContext(ctx, `SELECT answer, source, model, input_tokens, output_tokens FROM answers WHERE cache_key=? AND invalidated=0 AND expires_at>?`, key, time.Now().Unix()).Scan(&r.Answer, &r.Source, &r.Model, &r.InputTokens, &r.OutputTokens)
@@ -60,7 +62,10 @@ func (s *SQLite) Get(ctx context.Context, key string) (question.Result, error) {
 		return r, question.ErrNotFound
 	}
 	if err != nil {
-		return r, err
+		if ctx.Err() != nil {
+			return r, ctx.Err()
+		}
+		return r, errors.Join(question.ErrStorage, err)
 	}
 	r.Cached = true
 	return r, nil

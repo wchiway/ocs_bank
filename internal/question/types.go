@@ -66,6 +66,20 @@ type Result struct {
 	Cached       bool
 	Reviewed     bool
 }
+
+func (r Result) Layer() string {
+	if r.Reviewed {
+		return "reviewed"
+	}
+	if r.Cached {
+		return "cache"
+	}
+	if r.Answer != "" {
+		return "generated"
+	}
+	return "none"
+}
+
 type Querier interface {
 	Query(context.Context, Question) (Result, error)
 }

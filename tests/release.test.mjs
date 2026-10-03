@@ -113,7 +113,7 @@ process.exit(2);
 import { packageMetadata } from '../.github/scripts/package-metadata.mjs';
 test('GHCR metadata keeps channels separate and validates image identifiers',()=>{
  const sha='a'.repeat(40);
- assert.deepEqual(packageMetadata('Owner/Repo','v1.2.3','release',sha),{image:'ghcr.io/owner/repo:v1.2.3',tags:'ghcr.io/owner/repo:v1.2.3,ghcr.io/owner/repo:latest',commit:sha});
+ assert.deepEqual(packageMetadata('Owner/Repo','v1.2.3','release',sha),{image:'ghcr.io/owner/repo:v1.2.3',tags:'ghcr.io/owner/repo:v1.2.3',commit:sha});
  for(const tag of ['v1.2.3-rc.1','v1.2.3-beta.2','v1.2.3-alpha.1']) {
   const image=`ghcr.io/owner/repo:${tag}`;
   assert.deepEqual(packageMetadata('Owner/Repo',tag,'prerelease',sha),{image,tags:image,commit:sha});
@@ -130,7 +130,7 @@ test('package metadata exports build tags and summary for each release channel',
   try {
    const tag=channel==='release'?'v1.2.3':'v1.2.3-rc.1',commit='b'.repeat(40);
    const image=`ghcr.io/owner/repo:${tag}`;
-   const tags=channel==='release'?`${image},ghcr.io/owner/repo:latest`:image;
+   const tags=image;
    mkdirSync(join(dir,'.release'));
    writeFileSync(join(dir,'.release','metadata.json'),JSON.stringify({tag,channel,commit}));
    const output=join(dir,'output'),summary=join(dir,'summary');
@@ -140,7 +140,7 @@ test('package metadata exports build tags and summary for each release channel',
    assert.deepEqual(values,{image,tags,commit});
    const text=readFileSync(summary,'utf8');
    assert(text.includes(image));
-   assert.equal(text.includes('ghcr.io/owner/repo:latest'),channel==='release');
+   assert.equal(text.includes('ghcr.io/owner/repo:latest'),false);
   } finally {rmSync(dir,{recursive:true,force:true});}
  }
 });

@@ -7,12 +7,14 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/wchiway/ocs_bank/internal/question"
+	"github.com/wchiway/ocs_bank/internal/telemetry"
 )
 
 type Options struct {
@@ -20,6 +22,8 @@ type Options struct {
 	RequestsPerMinute int
 	Timeout           time.Duration
 	Logger            *slog.Logger
+	Metrics           *telemetry.Metrics
+	Ready             func(context.Context) error
 }
 type response struct {
 	Success bool   `json:"success"`
@@ -49,6 +53,12 @@ func New(q question.Querier, o Options) http.Handler {
 	if o.RequestsPerMinute < 1 {
 		o.RequestsPerMinute = 120
 	}
+	if o.Metrics == nil {
+		o.Metrics = &telemetry.Metrics{}
+	}
+	authorized := func(r *http.Request) bool {
+		return o.Token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+o.Token)) == 1
+	}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(func(next http.Handler) http.Handler {
@@ -64,11 +74,38 @@ func New(q question.Querier, o Options) http.Handler {
 		})
 	})
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "ok"}) })
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		if o.Ready != nil && o.Ready(ctx) != nil {
+			write(w, 503, map[string]string{"status": "unavailable"})
+			return
+		}
+		write(w, 200, map[string]string{"status": "ready"})
+	})
+	r.Get("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(r) {
+			write(w, 401, response{Error: "unauthorized"})
+			return
+		}
+		write(w, 200, map[string]any{"scope": "process", "counters": o.Metrics.Snapshot()})
+	})
 	var mu sync.Mutex
 	window := time.Now()
 	count := 0
 	r.Get("/api/query", func(w http.ResponseWriter, r *http.Request) {
-		if o.Token != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+o.Token)) != 1 {
+		start := time.Now()
+		category := "panic"
+		var res question.Result
+		defer func() {
+			o.Metrics.Add("queries_total", 1)
+			o.Metrics.Add("query_result_"+category, 1)
+			o.Metrics.Add("query_layer_"+res.Layer(), 1)
+			o.Metrics.ObserveDuration("query", time.Since(start))
+			o.Logger.Info("query", "request_id", middleware.GetReqID(r.Context()), "duration_ms", time.Since(start).Milliseconds(), "cached", res.Cached, "layer", res.Layer(), "result", category)
+		}()
+		if !authorized(r) {
+			category = "unauthorized"
 			write(w, 401, response{Error: "unauthorized"})
 			return
 		}
@@ -81,32 +118,32 @@ func New(q question.Querier, o Options) http.Handler {
 		if allowed {
 			count++
 		}
+		retrySeconds := max(1, int(time.Until(window.Add(time.Minute)).Seconds())+1)
 		mu.Unlock()
 		if !allowed {
-			w.Header().Set("Retry-After", "60")
+			category = "rate_limit"
+			w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
 			write(w, 429, response{Error: "rate limited"})
 			return
 		}
 		values, err := parseQuery(r)
 		if err != nil {
+			category = "invalid"
 			write(w, 400, response{Error: "invalid query parameters"})
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), o.Timeout)
 		defer cancel()
-		start := time.Now()
-		res, err := q.Query(ctx, values)
-		category := "ok"
-		if err != nil {
-			category = "failed"
-		}
-		o.Logger.Info("query", "request_id", middleware.GetReqID(ctx), "duration_ms", time.Since(start).Milliseconds(), "cached", res.Cached, "result", category)
+		res, err = q.Query(ctx, values)
+		category = question.ErrorCategory(err)
 		if err != nil {
 			switch {
 			case errors.Is(err, question.ErrNotFound), errors.Is(err, question.ErrRefused):
 				write(w, 200, response{Success: true, Data: &data{Code: 0, Msg: "未找到答案"}})
 			case errors.Is(err, question.ErrInvalid):
 				write(w, 400, response{Error: "invalid question"})
+			case errors.Is(err, question.ErrStorage):
+				write(w, 503, response{Error: "storage unavailable"})
 			case errors.Is(err, context.DeadlineExceeded):
 				write(w, 504, response{Error: "upstream timeout"})
 			case errors.Is(err, context.Canceled):
