@@ -26,9 +26,10 @@ type Options struct {
 	Ready             func(context.Context) error
 }
 type response struct {
-	Success bool   `json:"success"`
-	Data    *data  `json:"data,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Success   bool   `json:"success"`
+	Data      *data  `json:"data,omitempty"`
+	Error     string `json:"error,omitempty"`
+	ErrorCode string `json:"error_code,omitempty"`
 }
 type data struct {
 	Code   int     `json:"code"`
@@ -67,7 +68,7 @@ func New(q question.Querier, o Options) http.Handler {
 			defer func() {
 				if recover() != nil {
 					o.Logger.Error("request panic", "request_id", middleware.GetReqID(r.Context()))
-					write(w, 500, response{Error: "internal error"})
+					writeQueryError(w, r, 500, "internal", "internal error")
 				}
 			}()
 			next.ServeHTTP(w, r)
@@ -93,7 +94,7 @@ func New(q question.Querier, o Options) http.Handler {
 	var mu sync.Mutex
 	window := time.Now()
 	count := 0
-	r.Get("/api/query", func(w http.ResponseWriter, r *http.Request) {
+	query := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		category := "panic"
 		var res question.Result
@@ -106,7 +107,7 @@ func New(q question.Querier, o Options) http.Handler {
 		}()
 		if !authorized(r) {
 			category = "unauthorized"
-			write(w, 401, response{Error: "unauthorized"})
+			writeQueryError(w, r, 401, category, "unauthorized")
 			return
 		}
 		mu.Lock()
@@ -123,13 +124,13 @@ func New(q question.Querier, o Options) http.Handler {
 		if !allowed {
 			category = "rate_limit"
 			w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
-			write(w, 429, response{Error: "rate limited"})
+			writeQueryError(w, r, 429, category, "rate limited")
 			return
 		}
 		values, err := parseQuery(r)
 		if err != nil {
 			category = "invalid"
-			write(w, 400, response{Error: "invalid query parameters"})
+			writeQueryError(w, r, 400, category, "invalid query parameters")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), o.Timeout)
@@ -141,17 +142,23 @@ func New(q question.Querier, o Options) http.Handler {
 			case errors.Is(err, question.ErrNotFound), errors.Is(err, question.ErrRefused):
 				write(w, 200, response{Success: true, Data: &data{Code: 0, Msg: "未找到答案"}})
 			case errors.Is(err, question.ErrInvalid):
-				write(w, 400, response{Error: "invalid question"})
+				writeQueryError(w, r, 400, category, "invalid question")
 			case errors.Is(err, question.ErrStorage):
-				write(w, 503, response{Error: "storage unavailable"})
+				writeQueryError(w, r, 503, category, "storage unavailable")
 			case errors.Is(err, context.DeadlineExceeded):
-				write(w, 504, response{Error: "upstream timeout"})
+				writeQueryError(w, r, 504, category, "upstream timeout")
 			case errors.Is(err, context.Canceled):
-				write(w, 408, response{Error: "request canceled"})
+				writeQueryError(w, r, 408, category, "request canceled")
 			case errors.Is(err, question.ErrBusy), errors.Is(err, question.ErrRateLimit):
-				write(w, 503, response{Error: "service busy"})
+				writeQueryError(w, r, 503, category, "service busy")
+			case errors.Is(err, question.ErrOutputLimit):
+				writeQueryError(w, r, 502, category, "output token limit reached; increase max_tokens or reduce reasoning_effort")
+			case errors.Is(err, question.ErrAnswerFormat):
+				writeQueryError(w, r, 502, category, "model did not return answer JSON")
+			case errors.Is(err, question.ErrAnswerInvalid):
+				writeQueryError(w, r, 502, category, "model answer failed validation")
 			default:
-				write(w, 502, response{Error: "answer service unavailable"})
+				writeQueryError(w, r, 502, category, "answer service unavailable")
 			}
 			return
 		}
@@ -162,11 +169,27 @@ func New(q question.Querier, o Options) http.Handler {
 			source = "public"
 		}
 		write(w, 200, response{Success: true, Data: &data{Code: 1, Data: &res.Answer, Msg: msg, Source: source}})
+	}
+	r.Get("/api/query", query)
+	r.Get("/ocs/query", query)
+	// OCS probes the configured URL without query parameters or credentials.
+	r.Head("/ocs/query", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
 	})
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) { write(w, 404, response{Error: "not found"}) })
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) { write(w, 405, response{Error: "method not allowed"}) })
 	return r
 }
+
+// OCS's GM transport discards non-200 bodies before invoking its handler.
+func writeQueryError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	if r.URL.Path == "/ocs/query" {
+		status = http.StatusOK
+	}
+	write(w, status, response{Error: message, ErrorCode: code})
+}
+
 func parseQuery(r *http.Request) (question.Question, error) {
 	if len(r.URL.RawQuery) > 65536 {
 		return question.Question{}, question.ErrInvalid

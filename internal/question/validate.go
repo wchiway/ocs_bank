@@ -11,7 +11,7 @@ var optionLabel = regexp.MustCompile(`^([A-Z])[.、．:：)）][ \t]*(.+)$`)
 func ValidateAnswer(q Question, answer string) (string, error) {
 	answer = strings.TrimSpace(answer)
 	if answer == "" || len(answer) > 32768 {
-		return "", ErrProtocol
+		return "", ErrAnswerInvalid
 	}
 	if q.Type == "judgement" {
 		switch strings.ToLower(answer) {
@@ -20,7 +20,7 @@ func ValidateAnswer(q Question, answer string) (string, error) {
 		case "错", "错误", "false":
 			return "错", nil
 		default:
-			return "", ErrProtocol
+			return "", ErrAnswerInvalid
 		}
 	}
 	if q.Type != "single" && q.Type != "multiple" && q.Type != "completion" {
@@ -28,7 +28,7 @@ func ValidateAnswer(q Question, answer string) (string, error) {
 	}
 	parts := strings.Split(answer, "###")
 	if q.Type == "single" && len(parts) != 1 {
-		return "", ErrProtocol
+		return "", ErrAnswerInvalid
 	}
 	options := choiceContents(q.Options)
 	seen := map[string]bool{}
@@ -36,10 +36,10 @@ func ValidateAnswer(q Question, answer string) (string, error) {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
-			return "", ErrProtocol
+			return "", ErrAnswerInvalid
 		}
 		if q.Type != "completion" && options != nil && !options[part] {
-			return "", ErrProtocol
+			return "", ErrAnswerInvalid
 		}
 		if q.Type != "multiple" || !seen[part] {
 			output = append(output, part)

@@ -16,6 +16,7 @@ import (
 )
 
 type Config struct {
+	ReasoningEffort    string `json:"reasoning_effort"`
 	ChatTokenParameter string `json:"chat_token_parameter"`
 	Listen             string `json:"listen"`
 	Database           string `json:"database"`
@@ -88,6 +89,16 @@ func (c *Config) Validate() error {
 		c.Protocol = "responses"
 	default:
 		return errors.New("invalid protocol")
+	}
+	if c.ReasoningEffort != "" {
+		if c.Protocol != "responses" {
+			return errors.New("reasoning_effort requires the responses protocol")
+		}
+		switch c.ReasoningEffort {
+		case "none", "minimal", "low", "medium", "high", "xhigh", "max":
+		default:
+			return errors.New("invalid reasoning_effort")
+		}
 	}
 	u, err := url.Parse(c.BaseURL)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {

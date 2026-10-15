@@ -77,9 +77,12 @@ func TestMalformedAndIncomplete(t *testing.T) {
 		want                 error
 	}{
 		{"bad json", "chat", "{", question.ErrProtocol}, {"no choices", "chat", `{"choices":[]}`, question.ErrProtocol},
-		{"truncated", "chat", strings.Replace(chatOK, `"stop"`, `"length"`, 1), question.ErrProtocol},
+		{"truncated", "chat", strings.Replace(chatOK, `"stop"`, `"length"`, 1), question.ErrOutputLimit},
+		{"message truncated", "message", strings.Replace(messagesOK, `"end_turn"`, `"max_tokens"`, 1), question.ErrOutputLimit},
+		{"response truncated", "response", `{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"reasoning"}],"usage":{"input_tokens":12,"output_tokens":1024}}`, question.ErrOutputLimit},
+		{"other incomplete", "response", `{"status":"incomplete","incomplete_details":{"reason":"private-unknown-reason"}}`, question.ErrProtocol},
 		{"refusal", "chat", strings.Replace(chatOK, `"content":`, `"refusal":"no","content":`, 1), question.ErrRefused},
-		{"bad answer", "chat", strings.Replace(chatOK, `{\"answer\":\"yes\"}`, `not json`, 1), question.ErrProtocol},
+		{"bad answer", "chat", strings.Replace(chatOK, `{\"answer\":\"yes\"}`, `not json`, 1), question.ErrAnswerFormat},
 		{"tool only", "message", strings.Replace(messagesOK, `"end_turn"`, `"tool_use"`, 1), question.ErrProtocol},
 		{"message refusal", "message", strings.Replace(messagesOK, `"end_turn"`, `"refusal"`, 1), question.ErrRefused},
 		{"incomplete", "response", strings.Replace(responsesOK, `"status":"completed"`, `"status":"incomplete"`, 1), question.ErrProtocol},

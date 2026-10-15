@@ -189,7 +189,7 @@ func (s *Service) lookup(ctx context.Context, key string, q Question) (Result, e
 			if err == nil {
 				return r, nil
 			}
-			s.options.Logger.Warn("invalid reviewed answer", "category", "protocol")
+			s.options.Logger.Warn("invalid reviewed answer", "category", ErrorCategory(err))
 		} else if !errors.Is(err, ErrNotFound) {
 			return Result{}, err
 		}
