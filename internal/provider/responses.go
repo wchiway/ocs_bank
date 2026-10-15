@@ -8,16 +8,25 @@ import (
 )
 
 type responsesRequest struct {
-	Model           string `json:"model"`
-	Instructions    string `json:"instructions"`
-	Input           string `json:"input"`
-	MaxOutputTokens int    `json:"max_output_tokens"`
-	Stream          bool   `json:"stream"`
-	Store           bool   `json:"store"`
+	Model           string              `json:"model"`
+	Instructions    string              `json:"instructions"`
+	Input           string              `json:"input"`
+	MaxOutputTokens int                 `json:"max_output_tokens"`
+	Stream          bool                `json:"stream"`
+	Store           bool                `json:"store"`
+	Reasoning       *responsesReasoning `json:"reasoning,omitempty"`
+}
+
+type responsesReasoning struct {
+	Effort string `json:"effort"`
 }
 
 func responsesPayload(c config.Config, input string) responsesRequest {
-	return responsesRequest{Model: c.Model, Instructions: prompt, Input: input, MaxOutputTokens: c.MaxTokens}
+	r := responsesRequest{Model: c.Model, Instructions: prompt, Input: input, MaxOutputTokens: c.MaxTokens}
+	if c.ReasoningEffort != "" {
+		r.Reasoning = &responsesReasoning{Effort: c.ReasoningEffort}
+	}
+	return r
 }
 func parseResponses(c config.Config, raw []byte) (question.Result, error) {
 	var v struct {
@@ -38,6 +47,14 @@ func parseResponses(c config.Config, raw []byte) (question.Result, error) {
 	}
 	if err := decode(raw, &v); err != nil {
 		return question.Result{}, err
+	}
+	if v.Status == "incomplete" {
+		var details struct {
+			Reason string `json:"reason"`
+		}
+		if json.Unmarshal(v.Incomplete, &details) == nil && details.Reason == "max_output_tokens" {
+			return question.Result{}, question.ErrOutputLimit
+		}
 	}
 	if v.Status != "completed" || (len(v.Error) > 0 && string(v.Error) != "null") || (len(v.Incomplete) > 0 && string(v.Incomplete) != "null") {
 		return question.Result{}, question.ErrProtocol

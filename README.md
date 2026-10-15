@@ -44,6 +44,8 @@ go build -o bin/ocs-migrate ./cmd/migrate
 
 三个协议独立构造请求、鉴权和解析响应。第一版只支持非流式文本问答，不执行工具或解析多模态内容。模型必须支持文本 JSON 答案；服务不强制发送厂商特定的结构化输出参数。Chat 默认发送 `max_tokens`，需要新字段的模型可配置 `"chat_token_parameter": "max_completion_tokens"`。
 
+Responses 可选配置 `reasoning_effort`，服务将其发送为 `reasoning: {"effort": "…"}`。允许值为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；具体模型支持哪些值由上游决定。省略时不发送该字段，保持原有行为和上游默认值。此配置仅用于 `response` / `responses`，其他协议配置非空值会导致启动校验失败。
+
 | 配置 | 默认值 | 含义 |
 |---|---|---|
 | `listen` | `127.0.0.1:5000` | HTTP 监听地址 |
@@ -53,15 +55,20 @@ go build -o bin/ocs-migrate ./cmd/migrate
 | `max_concurrent` | 4 | 最大同时模型调用数 |
 | `max_pending` | 64 | 最大等待调用者数量，包含共享请求 |
 | `max_retries` | 2 | 首次调用后的重试次数，0–5 |
-| `max_tokens` | 1024 | 对应协议的输出 token 上限 |
+| `max_tokens` | 1024 | 对应协议的输出 token 上限；Responses 映射为 `max_output_tokens`，可包含推理与最终答案 |
+| `reasoning_effort` | 省略 | 仅 Responses；显式指定模型的推理强度 |
 | `requests_per_minute` | 120 | 所有已认证查询共享的固定窗口限流 |
 | `cache_ttl_hours` | 720 | 缓存有效期，1–87600 小时 |
 
-`model` 和 `base_url` 必填，模型名称由所选服务商决定。切换模型、端点或协议会使用新的缓存命名空间。题型采用 OCS 的 `single`、`multiple`、`judgement`、`completion`；未知题型可以传递给模型，缓存仍按类型隔离。
+`model` 和 `base_url` 必填，模型名称由所选服务商决定。切换模型、端点、协议或显式 `reasoning_effort` 会使用新的 AI 缓存命名空间；人工确认题库不受影响。题型采用 OCS 的 `single`、`multiple`、`judgement`、`completion`；未知题型可以传递给模型，缓存仍按类型隔离。
+
+使用 Qwen Responses 时，可参考 [examples/qwen-responses.json](examples/qwen-responses.json)，其中 `qwen3.8-flash` 使用 `reasoning_effort: "low"`、`max_tokens: 4096`、60 秒总预算。示例中的 `https://api.example.com/v1` 是占位地址，必须按服务商或网关提供的 Responses 端点替换 `base_url`，必要时设置 `endpoint_path`；不能直接假定 Chat Completions 根地址支持 Responses。[阿里云 Responses 文档](https://www.alibabacloud.com/help/zh/model-studio/qwen-api-via-openai-responses) 说明 Qwen3.8 默认推理强度为 `xhigh`，且 `max_output_tokens` 同时限制推理和最终答案。输出预算过小可能在生成完整 JSON 前耗尽，服务会拒绝截断答案。配置与部署步骤见[维护文档](docs/maintenance.md#ocs-连接失败与模型输出排障)。
 
 ## 接入 OCS
 
-将 [examples/ocs.json](examples/ocs.json) 的整个 JSON 数组填入 OCS 自定义题库配置。修改 `url` 为浏览器能访问的地址。使用 `GM_xmlhttpRequest`；按脚本管理器要求允许相应 `@connect` 域名。
+将 [examples/ocs.json](examples/ocs.json) 的整个 JSON 数组填入 OCS 自定义题库配置。修改 `url` 为浏览器能访问的 `/ocs/query` 地址。使用 `GM_xmlhttpRequest`；按脚本管理器要求允许相应 `@connect` 域名。
+
+OCS 5.2.1 的 [GM 请求实现](https://github.com/ocsjs/ocsjs/blob/8b25a3f44523a0d4b7373878488056f4aa478cf6/packages/core/src/core/utils/request.ts#L48) 只将 HTTP 200 的响应交给 handler；非 200 会先被归为连接失败。`GET /ocs/query` 使用与 `GET /api/query` 相同的认证、限流和查询服务，将业务错误以 HTTP 200 的 JSON 返回，让 handler 能显示具体原因。OCS 的连接测试使用公开的 `HEAD /ocs/query`，无需参数或令牌，不调用模型、不占查询限流额度；测试通过只代表此探测端点可达，不能验证访问令牌、数据库或模型调用。
 
 若启用访问令牌，在题库配置对象增加：
 
@@ -69,7 +76,7 @@ go build -o bin/ocs-migrate ./cmd/migrate
 "headers": {"Authorization": "Bearer YOUR_SERVICE_ACCESS_TOKEN"}
 ```
 
-这里是本服务的访问令牌，不是上游模型密钥。配置示例的 handler 按 `res.data.code` 读取业务状态，成功返回 `[undefined, 答案]`，未找到返回 `undefined`。参考 [OCS 官方接口文档](https://docs.ocsjs.com/docs/other/api)。
+这里是本服务的访问令牌，不是上游模型密钥。配置示例的 handler 对 `success:false` 按固定 `error_code` 映射抛出中文错误，不显示上游错误文本；成功按 `res.data.code` 返回 `[undefined, 答案]`，未找到返回 `undefined`。升级后请重新导入完整示例，使 URL 与 handler 同时更新。参考 [OCS 官方接口文档](https://docs.ocsjs.com/docs/other/api)。
 
 成功响应：
 
@@ -77,11 +84,19 @@ go build -o bin/ocs-migrate ./cmd/migrate
 {"success":true,"data":{"code":1,"data":"2","msg":"AI回答","source":"ai"}}
 ```
 
-本地缓存或人工题库命中时 `source` 为 `public`。未找到或模型拒答返回 HTTP 200 和 `data.code=0, data.data=null`。参数错误为 400，访问令牌错误为 401，本地限流为 429，上游失败为 502，容量不足、上游限流或数据库故障为 503，超时为 504。错误正文不包含上游密钥或内部错误信息。
+本地缓存或人工题库命中时 `source` 为 `public`。两个查询端点的成功结构相同；未找到或模型拒答返回 HTTP 200 和 `data.code=0, data.data=null`。
+
+`/api/query` 保留 HTTP 状态码：参数错误为 400，访问令牌错误为 401，本地限流为 429，上游失败为 502，容量不足、上游限流或数据库故障为 503，超时为 504，请求取消为 408。`/ocs/query` 的这些业务错误均返回 HTTP 200，正文为 `success:false`、稳定的 `error_code` 和安全的 `error`，不含答案字段或上游内部信息。例如输出达到上限时：
+
+```json
+{"success":false,"error_code":"output_limit","error":"output token limit reached; increase max_tokens or reduce reasoning_effort"}
+```
+
+新增分类 `output_limit` 表示上游明确报告输出达到上限，`answer_format` 表示答案不是约定的 JSON，`answer_invalid` 表示答案未通过题型校验；其他不兼容响应仍归为 `protocol`。这些错误都不会作为答案返回或缓存。分类与排障步骤见[维护文档](docs/maintenance.md#ocs-连接失败与模型输出排障)。
 
 ## 数据和部署
 
-SQLite 自动应用版本化迁移，使用 WAL、5 秒锁等待和单连接池；面向单实例和本地持久磁盘。缓存键包括题目、原始选项、规范题型、协议/端点/模型和提示词版本。过期记录不会命中；删除、修正或失效前备份数据库。
+SQLite 自动应用版本化迁移，使用 WAL、5 秒锁等待和单连接池；面向单实例和本地持久磁盘。缓存键包括题目、原始选项、规范题型、协议/端点/模型、显式 `reasoning_effort` 和提示词版本。过期记录不会命中；删除、修正或失效前备份数据库。
 
 人工导入保存到独立的 `reviewed_answers`，不受模型切换或缓存 TTL 影响。schema v2 自动迁移旧 `legacy-reviewed` 中未显式失效且答案无冲突的记录（包括已过期记录）；冲突记录留在原表供复核。普通 AI 缓存不会自动变成人工答案。旧 AI 缓存策略 `answer-v1` 不再命中，避免沿用未做题型校验的答案。升级前备份；回退旧二进制需要恢复旧 schema 的备份。
 

@@ -6,19 +6,23 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 )
 
 var (
-	ErrInvalid     = errors.New("invalid question")
-	ErrNotFound    = errors.New("answer not found")
-	ErrUnavailable = errors.New("service unavailable")
-	ErrBusy        = errors.New("service busy")
-	ErrProtocol    = errors.New("invalid upstream response")
-	ErrAuth        = errors.New("upstream authentication failed")
-	ErrRateLimit   = errors.New("upstream rate limited")
-	ErrRefused     = errors.New("upstream refused request")
-	ErrStorage     = errors.New("storage unavailable")
+	ErrInvalid       = errors.New("invalid question")
+	ErrNotFound      = errors.New("answer not found")
+	ErrUnavailable   = errors.New("service unavailable")
+	ErrBusy          = errors.New("service busy")
+	ErrProtocol      = errors.New("invalid upstream response")
+	ErrOutputLimit   = fmt.Errorf("%w: output token limit reached", ErrProtocol)
+	ErrAnswerFormat  = fmt.Errorf("%w: answer JSON required", ErrProtocol)
+	ErrAnswerInvalid = fmt.Errorf("%w: answer validation failed", ErrProtocol)
+	ErrAuth          = errors.New("upstream authentication failed")
+	ErrRateLimit     = errors.New("upstream rate limited")
+	ErrRefused       = errors.New("upstream refused request")
+	ErrStorage       = errors.New("storage unavailable")
 )
 
 const PromptVersion = "answer-v2"

@@ -2,6 +2,7 @@ package question
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -33,7 +34,7 @@ func TestInvalidTypedAnswerIsNotCached(t *testing.T) {
 	s := service(t, m, generatorFunc(func(_ context.Context, _ Question) (Result, error) { return Result{Answer: "A"}, nil }), 1, 2)
 	q := Question{Title: "pick", Type: "single", Options: "A. apple\nB. pear"}
 	for range 2 {
-		if _, err := s.Query(context.Background(), q); err != ErrProtocol {
+		if _, err := s.Query(context.Background(), q); !errors.Is(err, ErrAnswerInvalid) {
 			t.Fatal(err)
 		}
 	}

@@ -19,20 +19,20 @@ func ParseAnswer(text string) (string, error) {
 		Legacy *string `json:"anwser"`
 	}
 	if json.Unmarshal([]byte(text), &v) != nil {
-		return "", ErrProtocol
+		return "", ErrAnswerFormat
 	}
 	if v.Answer != nil && v.Legacy != nil && *v.Answer != *v.Legacy {
-		return "", ErrProtocol
+		return "", ErrAnswerFormat
 	}
 	if v.Answer == nil {
 		v.Answer = v.Legacy
 	}
 	if v.Answer == nil {
-		return "", ErrProtocol
+		return "", ErrAnswerFormat
 	}
 	answer := strings.TrimSpace(*v.Answer)
 	if answer == "" || len(answer) > 32768 {
-		return "", ErrProtocol
+		return "", ErrAnswerFormat
 	}
 	return answer, nil
 }

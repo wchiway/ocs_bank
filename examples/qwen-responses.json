@@ -1,0 +1,10 @@
+{
+  "listen": "127.0.0.1:5000",
+  "database": "question_bank.db",
+  "protocol": "response",
+  "base_url": "https://api.example.com/v1",
+  "model": "qwen3.8-flash",
+  "reasoning_effort": "low",
+  "timeout_seconds": 60,
+  "max_tokens": 4096
+}

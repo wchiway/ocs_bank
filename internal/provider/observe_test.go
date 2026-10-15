@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,7 +41,9 @@ func TestAttemptRecords(t *testing.T) {
 		{"success", chatOK, 200, "ok", true},
 		{"auth", "private upstream body", 401, "auth", false},
 		{"malformed", "{", 200, "protocol", false},
-		{"typed invalid", `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"answer\":\"A\"}"}}]}`, 200, "protocol", false},
+		{"typed invalid", `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"answer\":\"A\"}"}}]}`, 200, "answer_invalid", false},
+		{"truncated", strings.Replace(chatOK, `"stop"`, `"length"`, 1), 200, "output_limit", true},
+		{"answer format", strings.Replace(chatOK, `{\"answer\":\"yes\"}`, `not JSON`, 1), 200, "answer_format", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.status); io.WriteString(w, tc.body) }))

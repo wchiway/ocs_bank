@@ -62,8 +62,14 @@ func New(c config.Config) (*Client, error) {
 	h := &http.Client{Transport: transport, Timeout: c.Timeout(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return &Client{cfg: c, http: h, endpoint: u.String()}, nil
 }
-func (c *Client) Close()            { c.http.CloseIdleConnections() }
-func (c *Client) Namespace() string { return c.cfg.Protocol + "|" + c.endpoint + "|" + c.cfg.Model }
+func (c *Client) Close() { c.http.CloseIdleConnections() }
+func (c *Client) Namespace() string {
+	namespace := c.cfg.Protocol + "|" + c.endpoint + "|" + c.cfg.Model
+	if c.cfg.ReasoningEffort != "" {
+		namespace += "|reasoning_effort=" + c.cfg.ReasoningEffort
+	}
+	return namespace
+}
 func (c *Client) Generate(ctx context.Context, q question.Question) (question.Result, error) {
 	q, err := q.Normalize()
 	if err != nil {
@@ -225,6 +231,9 @@ func completed(reason string, allowed ...string) error {
 		if reason == s {
 			return nil
 		}
+	}
+	if reason == "length" || reason == "max_tokens" {
+		return question.ErrOutputLimit
 	}
 	if reason == "refusal" || reason == "content_filter" {
 		return question.ErrRefused

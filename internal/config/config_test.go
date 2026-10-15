@@ -14,6 +14,10 @@ func TestLoad(t *testing.T) {
 	}{
 		{"valid", `{"model":"test","base_url":"https://example.com/v1"}`, true},
 		{"messages", `{"protocol":"message","model":"test","base_url":"https://example.com/v1"}`, true},
+		{"response reasoning", `{"protocol":"response","reasoning_effort":"low","model":"test","base_url":"https://example.com/v1"}`, true},
+		{"invalid reasoning", `{"protocol":"response","reasoning_effort":"typo","model":"test","base_url":"https://example.com/v1"}`, false},
+		{"chat reasoning rejected", `{"protocol":"chat","reasoning_effort":"low","model":"test","base_url":"https://example.com/v1"}`, false},
+		{"messages reasoning rejected", `{"protocol":"messages","reasoning_effort":"low","model":"test","base_url":"https://example.com/v1"}`, false},
 		{"removed key setting", `{"model":"test","base_url":"https://example.com/v1","api_key_env":"TEST_KEY"}`, false},
 		{"inline key rejected", `{"model":"test","base_url":"https://example.com/v1","api_key":"secret"}`, false},
 		{"public", `{"listen":"0.0.0.0:5000","model":"test","base_url":"https://example.com/v1"}`, false},

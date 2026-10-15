@@ -14,7 +14,8 @@ func ErrorCategory(err error) string {
 		{context.DeadlineExceeded, "timeout"}, {context.Canceled, "canceled"},
 		{ErrInvalid, "invalid"}, {ErrNotFound, "not_found"}, {ErrRefused, "refused"},
 		{ErrAuth, "auth"}, {ErrRateLimit, "rate_limit"}, {ErrBusy, "busy"},
-		{ErrProtocol, "protocol"}, {ErrStorage, "storage"},
+		{ErrOutputLimit, "output_limit"}, {ErrAnswerFormat, "answer_format"},
+		{ErrAnswerInvalid, "answer_invalid"}, {ErrProtocol, "protocol"}, {ErrStorage, "storage"},
 	} {
 		if errors.Is(err, entry.err) {
 			return entry.name
