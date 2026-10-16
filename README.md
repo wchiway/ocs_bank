@@ -2,6 +2,16 @@
 
 基于 **Go + chi + SQLite** 的 OCS 题库服务。支持 Chat Completions、Anthropic Messages 和 Responses 三种上游协议；先查人工确认题库，再查 AI 缓存，未命中再调用模型。AI 生成内容不代表已经人工验证，缓存记录保留来源并支持失效。
 
+## 桌面端
+
+桌面端使用 MyGo，提供模型设置、服务启停、运行状态和 OCS 配置导出。首次打开填写模型与 API Key，后续打开自动启动；关闭窗口停止服务。配置与数据库保存在用户目录，默认仅允许本机访问。
+
+```bash
+CGO_ENABLED=0 go tool mygo build
+```
+
+需要 `go.mod` 指定的 Go 版本；Windows/Linux 还需要系统 WebView 组件。三平台打包、数据目录及 Actions 测试包说明见 [桌面端文档](docs/desktop.md)。CLI 与 Docker 继续使用下面的入口。
+
 ## 快速运行
 
 需要 `go.mod` 指定的 Go 版本或兼容更新版本（当前 1.27.1）。

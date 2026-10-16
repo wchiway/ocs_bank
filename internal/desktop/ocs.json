@@ -1,0 +1,12 @@
+[
+  {
+    "name": "OCS Bank",
+    "homepage": "https://github.com/wchiway/ocs_bank",
+    "url": "http://127.0.0.1:5000/ocs/query",
+    "method": "get",
+    "type": "GM_xmlhttpRequest",
+    "contentType": "json",
+    "data": {"title": "${title}", "options": "${options}", "type": "${type}"},
+    "handler": "return (res) => { if (res && res.success === false) { const messages = { output_limit: '模型输出达到上限，请联系题库管理员增加 max_tokens 或降低 reasoning_effort', answer_format: '模型未返回约定的 JSON 答案，请重试', answer_invalid: '模型答案未通过题型校验，请重试', protocol: '上游模型响应格式不兼容，请联系题库管理员', auth: '上游模型认证失败，请联系题库管理员', timeout: '模型回答超时，请重试或降低搜题并发', canceled: '题库请求已取消，请重试', busy: '题库繁忙，请稍后重试', rate_limit: '请求过于频繁，请稍后重试', storage: '题库数据库暂不可用，请联系题库管理员', unauthorized: '题库访问令牌错误，请检查 Authorization 配置', invalid: '题目参数无效', unavailable: '上游模型暂不可用，请稍后重试' }; throw new Error(messages[res.error_code] || '题库服务暂不可用，请稍后重试'); } return res && res.success && res.data && res.data.code === 1 && typeof res.data.data === 'string' && res.data.data.trim() ? [undefined, res.data.data] : undefined; };"
+  }
+]

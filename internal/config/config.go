@@ -36,8 +36,12 @@ type Config struct {
 	AccessToken        string `json:"-"`
 }
 
+func Defaults() Config {
+	return Config{Listen: "127.0.0.1:5000", Database: "question_bank.db", Protocol: "chat", TimeoutSeconds: 60, MaxConcurrent: 4, MaxPending: 64, MaxRetries: 2, MaxTokens: 1024, RequestsPerMinute: 120, CacheTTLHours: 720}
+}
+
 func Load(path string) (Config, error) {
-	c := Config{Listen: "127.0.0.1:5000", Database: "question_bank.db", Protocol: "chat", TimeoutSeconds: 60, MaxConcurrent: 4, MaxPending: 64, MaxRetries: 2, MaxTokens: 1024, RequestsPerMinute: 120, CacheTTLHours: 720}
+	c := Defaults()
 	f, err := os.Open(path)
 	if err != nil {
 		return c, err
