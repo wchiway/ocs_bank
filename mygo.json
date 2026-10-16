@@ -1,0 +1,16 @@
+{
+  "name": "OCS Bank",
+  "identifier": "io.github.wchiway.ocsbank",
+  "version": "0.1.0",
+  "main": "./cmd/desktop",
+  "out": "desktop-build",
+  "macos": {
+    "minimumSystemVersion": "12.0"
+  },
+  "linux": {
+    "maintainer": "wchiway",
+    "comment": "Local OCS question bank and AI answer service",
+    "categories": ["Education", "Utility"],
+    "command": "ocs-bank"
+  }
+}

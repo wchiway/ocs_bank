@@ -1,0 +1,68 @@
+name: Desktop packages
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'cmd/desktop/**'
+      - 'internal/**'
+      - 'migrations/**'
+      - 'examples/ocs.json'
+      - 'go.mod'
+      - 'go.sum'
+      - 'mygo.json'
+      - '.github/workflows/desktop.yml'
+permissions:
+  contents: read
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package:
+    name: Package ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            artifact: linux-amd64
+          - runner: ubuntu-latest
+            platform: linux/arm64
+            artifact: linux-arm64
+          - runner: windows-latest
+            platform: windows/amd64
+            artifact: windows-amd64
+          - runner: windows-latest
+            platform: windows/arm64
+            artifact: windows-arm64
+          - runner: macos-latest
+            platform: darwin/universal
+            artifact: darwin-universal
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build desktop package
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+          DESKTOP_PLATFORM: ${{ matrix.platform }}
+        run: go tool mygo build -platform "$DESKTOP_PLATFORM" -skip-notarize
+      - name: Upload desktop packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocs-bank-desktop-${{ matrix.artifact }}
+          path: |
+            desktop-build/**/*.exe
+            desktop-build/**/*.dmg
+            desktop-build/**/*.deb
+            desktop-build/**/*.tar.gz
+            desktop-build/**/install.sh
+          if-no-files-found: error
+          retention-days: 14
