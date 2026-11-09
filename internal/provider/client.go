@@ -1,4 +1,4 @@
-// Package provider adapts three synchronous text-generation protocols.
+// Package provider adapts three synchronous text and image generation protocols.
 package provider
 
 import (
@@ -77,15 +77,15 @@ func (c *Client) Generate(ctx context.Context, q question.Question) (question.Re
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout())
 	defer cancel()
-	input, _ := json.Marshal(q)
+	input, _ := json.Marshal(question.Question{Title: q.AITitle(), Options: q.AIOptions(), Type: q.Type})
 	var payload any
 	switch c.cfg.Protocol {
 	case "chat_completions":
-		payload = chatPayload(c.cfg, string(input))
+		payload = chatPayload(c.cfg, string(input), q.Images)
 	case "messages":
-		payload = messagesPayload(c.cfg, string(input))
+		payload = messagesPayload(c.cfg, string(input), q.Images)
 	case "responses":
-		payload = responsesPayload(c.cfg, string(input))
+		payload = responsesPayload(c.cfg, string(input), q.Images)
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

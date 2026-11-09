@@ -14,8 +14,28 @@ type messagesRequest struct {
 	Stream    bool          `json:"stream"`
 }
 
-func messagesPayload(c config.Config, input string) messagesRequest {
-	return messagesRequest{Model: c.Model, System: prompt, Messages: []chatMessage{{"user", input}}, MaxTokens: c.MaxTokens}
+type messagesContent struct {
+	Type   string               `json:"type"`
+	Text   string               `json:"text,omitempty"`
+	Source *messagesImageSource `json:"source,omitempty"`
+}
+type messagesImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
+func messagesPayload(c config.Config, input string, images []question.Image) messagesRequest {
+	var content any = input
+	if len(images) > 0 {
+		blocks := make([]messagesContent, 0, len(images)+1)
+		for _, image := range images {
+			blocks = append(blocks, messagesContent{Type: "image", Source: &messagesImageSource{Type: "base64", MediaType: image.MediaType(), Data: image.Base64()}})
+		}
+		blocks = append(blocks, messagesContent{Type: "text", Text: input})
+		content = blocks
+	}
+	return messagesRequest{Model: c.Model, System: generationPrompt(images), Messages: []chatMessage{{"user", content}}, MaxTokens: c.MaxTokens}
 }
 func parseMessages(c config.Config, raw []byte) (question.Result, error) {
 	var v struct {

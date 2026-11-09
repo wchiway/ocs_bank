@@ -1,22 +1,183 @@
 package httpapi
 
 import (
-	"github.com/wchiway/ocs_bank/internal/question"
+	"encoding/json"
+	"io"
+	"mime"
 	"net/http"
 	"net/url"
+
+	"github.com/wchiway/ocs_bank/internal/question"
 )
 
+const maxQueryBodyBytes = 17 << 20
+
+type queryBody struct {
+	Title             string
+	Options           string
+	Type              string
+	Images            []string
+	SuggestionTitle   string
+	SuggestionOptions string
+	Version           json.RawMessage
+}
+
 func urlValues(r *http.Request) (map[string]string, error) {
-	v, e := url.ParseQuery(r.URL.RawQuery)
-	if e != nil {
-		return nil, e
+	v, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"images", "suggestion_title", "suggestion_options"} {
+		if _, ok := v[key]; ok {
+			return nil, question.ErrImageInvalid
+		}
 	}
 	m := map[string]string{}
-	for _, k := range []string{"title", "options", "type"} {
-		if len(v[k]) > 1 {
+	for _, key := range []string{"title", "options", "type"} {
+		if len(v[key]) > 1 {
 			return nil, question.ErrInvalid
 		}
-		m[k] = v.Get(k)
+		m[key] = v.Get(key)
 	}
 	return m, nil
+}
+
+func parseQuery(w http.ResponseWriter, r *http.Request) (question.Question, error) {
+	if err := r.Context().Err(); err != nil {
+		return question.Question{}, err
+	}
+	if len(r.URL.RawQuery) > 65536 {
+		return question.Question{}, question.ErrInvalid
+	}
+	if r.Method != http.MethodPost {
+		v, err := urlValues(r)
+		if err != nil {
+			return question.Question{}, err
+		}
+		return (question.Question{Title: v["title"], Options: v["options"], Type: v["type"]}).Normalize()
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" || r.URL.RawQuery != "" {
+		return question.Question{}, question.ErrInvalid
+	}
+	if r.ContentLength > maxQueryBodyBytes {
+		return question.Question{}, &http.MaxBytesError{Limit: maxQueryBodyBytes}
+	}
+	body, err := decodeQueryBody(http.MaxBytesReader(w, r.Body, maxQueryBodyBytes))
+	if err != nil {
+		return question.Question{}, err
+	}
+	images, err := question.ParseImages(body.Images)
+	if err != nil {
+		return question.Question{}, err
+	}
+	if err := r.Context().Err(); err != nil {
+		return question.Question{}, err
+	}
+	// Older OCS versions substituted missing suggestion fields with this literal.
+	if body.SuggestionTitle == "undefined" {
+		body.SuggestionTitle = ""
+	}
+	if body.SuggestionOptions == "undefined" {
+		body.SuggestionOptions = ""
+	}
+	return (question.Question{Title: body.Title, Options: body.Options, Type: body.Type, Images: images, SuggestionTitle: body.SuggestionTitle, SuggestionOptions: body.SuggestionOptions}).Normalize()
+}
+
+func decodeQueryBody(reader io.Reader) (queryBody, error) {
+	var body queryBody
+	decoder := json.NewDecoder(reader)
+	token, err := decoder.Token()
+	if err != nil {
+		return body, err
+	}
+	if token != json.Delim('{') {
+		return body, question.ErrInvalid
+	}
+	seen := map[string]bool{}
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return body, err
+		}
+		key, ok := token.(string)
+		if !ok || seen[key] {
+			return body, question.ErrInvalid
+		}
+		seen[key] = true
+		var value *string
+		switch key {
+		case "title":
+			value = &body.Title
+		case "options":
+			value = &body.Options
+		case "type":
+			value = &body.Type
+		case "images":
+			body.Images, err = decodeImageValues(decoder)
+			if err != nil {
+				return body, err
+			}
+			continue
+		case "suggestion_title":
+			value = &body.SuggestionTitle
+		case "suggestion_options":
+			value = &body.SuggestionOptions
+		case "v":
+			if err := decoder.Decode(&body.Version); err != nil {
+				return body, err
+			}
+			continue
+		default:
+			return body, question.ErrInvalid
+		}
+		token, err = decoder.Token()
+		if err != nil {
+			return body, err
+		}
+		text, ok := token.(string)
+		if !ok {
+			return body, question.ErrInvalid
+		}
+		*value = text
+	}
+	if _, err := decoder.Token(); err != nil {
+		return body, err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			err = question.ErrInvalid
+		}
+		return body, err
+	}
+	return body, nil
+}
+
+func decodeImageValues(decoder *json.Decoder) ([]string, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if token != json.Delim('[') {
+		return nil, question.ErrImageInvalid
+	}
+	values := make([]string, 0, question.MaxImages)
+	for decoder.More() {
+		if len(values) >= question.MaxImages {
+			return nil, question.ErrImageInvalid
+		}
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		value, ok := token.(string)
+		if !ok || value == "" {
+			return nil, question.ErrImageInvalid
+		}
+		values = append(values, value)
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	return values, nil
 }

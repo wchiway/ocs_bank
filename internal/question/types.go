@@ -12,6 +12,7 @@ import (
 
 var (
 	ErrInvalid       = errors.New("invalid question")
+	ErrImageInvalid  = fmt.Errorf("%w: invalid image input", ErrInvalid)
 	ErrNotFound      = errors.New("answer not found")
 	ErrUnavailable   = errors.New("service unavailable")
 	ErrBusy          = errors.New("service busy")
@@ -28,13 +29,35 @@ var (
 const PromptVersion = "answer-v2"
 
 type Question struct {
-	Title   string `json:"title"`
-	Options string `json:"options"`
-	Type    string `json:"type"`
+	Title             string  `json:"title"`
+	Options           string  `json:"options"`
+	Type              string  `json:"type"`
+	Images            []Image `json:"-"`
+	SuggestionTitle   string  `json:"suggestion_title,omitempty"`
+	SuggestionOptions string  `json:"suggestion_options,omitempty"`
 }
 
 func (q Question) Normalize() (Question, error) {
 	q.Title = strings.TrimSpace(q.Title)
+	q.SuggestionTitle = strings.TrimSpace(q.SuggestionTitle)
+	q.SuggestionOptions = strings.TrimSpace(q.SuggestionOptions)
+	// Inline DOM image sources also appear in OCS's original text. Use its
+	// marker text so those image bytes do not enter prompts or SQLite rows.
+	if len(q.Images) == 0 && (inlineImage.MatchString(q.Title) || inlineImage.MatchString(q.Options)) {
+		return q, ErrImageInvalid
+	}
+	if len(q.Images) > 0 && inlineImage.MatchString(q.Title) {
+		if q.SuggestionTitle == "" {
+			return q, ErrImageInvalid
+		}
+		q.Title = q.SuggestionTitle
+	}
+	if len(q.Images) > 0 && inlineImage.MatchString(q.Options) {
+		if q.SuggestionOptions == "" {
+			return q, ErrImageInvalid
+		}
+		q.Options = q.SuggestionOptions
+	}
 	q.Type = strings.ToLower(strings.TrimSpace(q.Type))
 	switch q.Type {
 	case "判断题", "判断", "judgment":
@@ -49,14 +72,43 @@ func (q Question) Normalize() (Question, error) {
 	if q.Title == "" || len(q.Title) > 16384 || len(q.Options) > 32768 || len(q.Type) > 128 {
 		return q, ErrInvalid
 	}
+	if len(q.Images) > 0 {
+		for _, text := range []string{q.AITitle(), q.AIOptions()} {
+			if inlineImage.MatchString(text) || !validImageReferences(text, len(q.Images)) {
+				return q, ErrImageInvalid
+			}
+		}
+	}
+	if len(q.Images) > MaxImages || len(q.SuggestionTitle) > 16384 || len(q.SuggestionOptions) > 32768 {
+		return q, ErrImageInvalid
+	}
+	total := 0
+	for _, image := range q.Images {
+		if image.digest == "" || image.data == "" || !supportedImageType(image.mediaType) || image.size < 1 || image.size > MaxImageBytes {
+			return q, ErrImageInvalid
+		}
+		total += image.size
+	}
+	if total > MaxTotalImageBytes || !validImageReferences(q.SuggestionTitle, len(q.Images)) || !validImageReferences(q.SuggestionOptions, len(q.Images)) {
+		return q, ErrImageInvalid
+	}
+	if len(q.Images) == 0 {
+		q.SuggestionTitle, q.SuggestionOptions = "", ""
+	}
+	q.Images = append([]Image(nil), q.Images...)
 	return q, nil
 }
 func (q Question) Key(namespace string) string {
+	digests := make([]string, 0, len(q.Images))
+	for _, image := range q.Images {
+		digests = append(digests, image.digest)
+	}
 	b, _ := json.Marshal(struct {
 		Question
-		Namespace string
-		Version   string
-	}{q, namespace, PromptVersion})
+		ImageDigests []string `json:"image_hashes,omitempty"`
+		Namespace    string
+		Version      string
+	}{q, digests, namespace, q.Version()})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }

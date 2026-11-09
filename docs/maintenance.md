@@ -28,7 +28,7 @@
 
 ## OCS 连接失败与模型输出排障
 
-先区分连接探测、实际查询和模型返回。OCS 5.2.1 的 [GM 请求实现](https://github.com/ocsjs/ocsjs/blob/8b25a3f44523a0d4b7373878488056f4aa478cf6/packages/core/src/core/utils/request.ts#L48) 只处理 HTTP 200，非 200 响应不会交给自定义 handler，所以模型返回错误也可能显示为“连接失败”。部署包含 `/ocs/query` 的新版本后，重新导入 [examples/ocs.json](../examples/ocs.json) 并修改浏览器可达地址；要同时更新 URL 和 handler。使用服务访问令牌的部署仍须配置 `Authorization: Bearer …`。连接测试的公开 `HEAD /ocs/query` 不检查该令牌；实际 `GET /ocs/query` 继续执行认证和限流。
+先区分连接探测、实际查询和模型返回。OCS 5.2.1 的 [GM 请求实现](https://github.com/ocsjs/ocsjs/blob/8b25a3f44523a0d4b7373878488056f4aa478cf6/packages/core/src/core/utils/request.ts#L48) 只处理 HTTP 200，非 200 响应不会交给自定义 handler，所以模型返回错误也可能显示为“连接失败”。部署包含 `/ocs/query` 的新版本后，重新导入 [examples/ocs.json](../examples/ocs.json) 并修改浏览器可达地址；要同时更新 URL 和 handler。使用服务访问令牌的部署仍须配置 `Authorization: Bearer …`。连接测试的公开 `HEAD /ocs/query` 不检查该令牌；实际 `GET/POST /ocs/query` 继续执行认证和限流。新版示例使用 POST JSON；图片字段和“暂不支持图片、公式”提示的处理见[图片题文档](images.md)。
 
 `/api/query` 保持原 HTTP 状态码，适合 API 调用和监控；`/ocs/query` 使用相同查询逻辑，将业务错误返回为 HTTP 200 与 `{"success":false,"error_code":"…","error":"…"}`。OCS 示例 handler 仅用固定错误码映射中文提示，未知错误使用通用提示，不拼接上游错误文本。错误响应不带答案，失败结果不会写入答案缓存；未找到或拒答仍是成功响应中的 `data.code=0`。
 
@@ -37,6 +37,8 @@
 | `output_limit` | 上游明确报告达到输出上限：Responses 的 `status=incomplete` 且 `incomplete_details.reason=max_output_tokens`，或 Chat 的 `finish_reason=length`、Messages 的 `stop_reason=max_tokens`。增加 `max_tokens`；Responses 可在模型支持时降低 `reasoning_effort`。截断输出不会被当作完整答案。 |
 | `answer_format` | 未返回约定的 JSON 答案。检查模型是否适合按提示输出 JSON，必要时重试或更换模型。它与明确的输出上限分类分开。 |
 | `answer_invalid` | JSON 答案未通过题型或选项校验。检查题型和选项是否完整，必要时换模型或人工复核。 |
+| `image_invalid` | 图片数组、Data URL、格式、尺寸或 `[图片N]` 引用无效，或超过图片数量/大小限制。重新导入新版配置，核对 OCS 图片转换是否成功。 |
+| `request_too_large` | POST JSON 请求体超过 17 MiB。减少图片数量或压缩图片；反向代理也须允许所需请求体大小。 |
 | `protocol` | 其他响应结构或协议不兼容。核对模型支持的协议、API 根地址和 `endpoint_path`；不能仅凭此分类认定输出已达到上限。 |
 | `timeout` | 请求总预算已用尽。结合队列与上游耗时检查；降低 OCS 并发或调整上游和超时预算。 |
 | `unauthorized` / `auth` | 前者是本服务访问令牌错误，后者是上游模型鉴权失败。分别由部署者在本机检查对应配置，不要上传凭据。 |

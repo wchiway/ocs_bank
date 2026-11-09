@@ -10,7 +10,7 @@ import (
 type responsesRequest struct {
 	Model           string              `json:"model"`
 	Instructions    string              `json:"instructions"`
-	Input           string              `json:"input"`
+	Input           any                 `json:"input"`
 	MaxOutputTokens int                 `json:"max_output_tokens"`
 	Stream          bool                `json:"stream"`
 	Store           bool                `json:"store"`
@@ -21,8 +21,27 @@ type responsesReasoning struct {
 	Effort string `json:"effort"`
 }
 
-func responsesPayload(c config.Config, input string) responsesRequest {
-	r := responsesRequest{Model: c.Model, Instructions: prompt, Input: input, MaxOutputTokens: c.MaxTokens}
+type responsesInputMessage struct {
+	Role    string             `json:"role"`
+	Content []responsesContent `json:"content"`
+}
+type responsesContent struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+}
+
+func responsesPayload(c config.Config, input string, images []question.Image) responsesRequest {
+	var content any = input
+	if len(images) > 0 {
+		blocks := make([]responsesContent, 0, len(images)+1)
+		blocks = append(blocks, responsesContent{Type: "input_text", Text: input})
+		for _, image := range images {
+			blocks = append(blocks, responsesContent{Type: "input_image", ImageURL: image.DataURL()})
+		}
+		content = []responsesInputMessage{{Role: "user", Content: blocks}}
+	}
+	r := responsesRequest{Model: c.Model, Instructions: generationPrompt(images), Input: content, MaxOutputTokens: c.MaxTokens}
 	if c.ReasoningEffort != "" {
 		r.Reasoning = &responsesReasoning{Effort: c.ReasoningEffort}
 	}

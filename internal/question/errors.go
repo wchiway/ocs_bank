@@ -12,7 +12,7 @@ func ErrorCategory(err error) string {
 		name string
 	}{
 		{context.DeadlineExceeded, "timeout"}, {context.Canceled, "canceled"},
-		{ErrInvalid, "invalid"}, {ErrNotFound, "not_found"}, {ErrRefused, "refused"},
+		{ErrImageInvalid, "image_invalid"}, {ErrInvalid, "invalid"}, {ErrNotFound, "not_found"}, {ErrRefused, "refused"},
 		{ErrAuth, "auth"}, {ErrRateLimit, "rate_limit"}, {ErrBusy, "busy"},
 		{ErrOutputLimit, "output_limit"}, {ErrAnswerFormat, "answer_format"},
 		{ErrAnswerInvalid, "answer_invalid"}, {ErrProtocol, "protocol"}, {ErrStorage, "storage"},

@@ -2,16 +2,6 @@
 
 基于 **Go + chi + SQLite** 的 OCS 题库服务。支持 Chat Completions、Anthropic Messages 和 Responses 三种上游协议；先查人工确认题库，再查 AI 缓存，未命中再调用模型。AI 生成内容不代表已经人工验证，缓存记录保留来源并支持失效。
 
-## 桌面端
-
-桌面端使用 MyGo，提供模型设置、服务启停、运行状态和 OCS 配置导出。首次打开填写模型与 API Key，后续打开自动启动；关闭窗口停止服务。配置与数据库保存在用户目录，默认仅允许本机访问。
-
-```bash
-CGO_ENABLED=0 go tool mygo build
-```
-
-需要 `go.mod` 指定的 Go 版本；Windows/Linux 还需要系统 WebView 组件。三平台打包、数据目录及 Actions 测试包说明见 [桌面端文档](docs/desktop.md)。CLI 与 Docker 继续使用下面的入口。
-
 ## 快速运行
 
 需要 `go.mod` 指定的 Go 版本或兼容更新版本（当前 1.27.1）。
@@ -52,7 +42,7 @@ go build -o bin/ocs-migrate ./cmd/migrate
 
 `base_url` 是包含版本前缀的 API 根地址，例如 `https://api.example.com/v1`。只追加上表资源路径，不重复添加 `/v1`。兼容网关的子路径也会保留。`endpoint_path` 可覆盖整个 URL 路径，例如 `/custom/v2/generate`；不能包含主机、查询参数或片段。非本机上游必须使用 HTTPS。
 
-三个协议独立构造请求、鉴权和解析响应。第一版只支持非流式文本问答，不执行工具或解析多模态内容。模型必须支持文本 JSON 答案；服务不强制发送厂商特定的结构化输出参数。Chat 默认发送 `max_tokens`，需要新字段的模型可配置 `"chat_token_parameter": "max_completion_tokens"`。
+三个协议独立构造请求、鉴权和解析响应，支持非流式文字和图片问答，不执行工具。文字题保持原有纯文本请求格式；图片题使用各协议的原生图片内容块，模型和兼容网关必须支持图片输入。模型仍须返回文本 JSON 答案；服务不强制发送厂商特定的结构化输出参数。Chat 默认发送 `max_tokens`，需要新字段的模型可配置 `"chat_token_parameter": "max_completion_tokens"`。
 
 Responses 可选配置 `reasoning_effort`，服务将其发送为 `reasoning: {"effort": "…"}`。允许值为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；具体模型支持哪些值由上游决定。省略时不发送该字段，保持原有行为和上游默认值。此配置仅用于 `response` / `responses`，其他协议配置非空值会导致启动校验失败。
 
@@ -76,14 +66,14 @@ Responses 可选配置 `reasoning_effort`，服务将其发送为 `reasoning: {"
 
 ## 接入 OCS
 
-将 [examples/ocs.json](examples/ocs.json) 的整个 JSON 数组填入 OCS 自定义题库配置。修改 `url` 为浏览器能访问的 `/ocs/query` 地址。使用 `GM_xmlhttpRequest`；按脚本管理器要求允许相应 `@connect` 域名。
+将 [examples/ocs.json](examples/ocs.json) 的整个 JSON 数组填入 OCS 自定义题库配置。修改 `url` 为浏览器能访问的 `/ocs/query` 地址。配置使用 POST JSON 和 `GM_xmlhttpRequest`，保留原始题干/选项并通过字段解析器传递图片数组；按脚本管理器要求允许相应 `@connect` 域名。图片题需开启 OCS 的“图片题优化”，并使用支持图片输入的模型与网关，完整字段、限制和排障见[图片题接入文档](docs/images.md)。
 
-OCS 5.2.1 的 [GM 请求实现](https://github.com/ocsjs/ocsjs/blob/8b25a3f44523a0d4b7373878488056f4aa478cf6/packages/core/src/core/utils/request.ts#L48) 只将 HTTP 200 的响应交给 handler；非 200 会先被归为连接失败。`GET /ocs/query` 使用与 `GET /api/query` 相同的认证、限流和查询服务，将业务错误以 HTTP 200 的 JSON 返回，让 handler 能显示具体原因。OCS 的连接测试使用公开的 `HEAD /ocs/query`，无需参数或令牌，不调用模型、不占查询限流额度；测试通过只代表此探测端点可达，不能验证访问令牌、数据库或模型调用。
+OCS 5.2.1 的 [GM 请求实现](https://github.com/ocsjs/ocsjs/blob/8b25a3f44523a0d4b7373878488056f4aa478cf6/packages/core/src/core/utils/request.ts#L48) 只将 HTTP 200 的响应交给 handler；非 200 会先被归为连接失败。`GET/POST /ocs/query` 使用与 `GET/POST /api/query` 相同的认证、限流和查询服务，将业务错误以 HTTP 200 的 JSON 返回，让 handler 能显示具体原因。OCS 的连接测试使用公开的 `HEAD /ocs/query`，无需参数或令牌，不调用模型、不占查询限流额度；测试通过只代表此探测端点可达，不能验证访问令牌、数据库或模型调用。
 
 若启用访问令牌，在题库配置对象增加：
 
 ```json
-"headers": {"Authorization": "Bearer YOUR_SERVICE_ACCESS_TOKEN"}
+"headers": {"Content-Type": "application/json", "Authorization": "Bearer YOUR_SERVICE_ACCESS_TOKEN"}
 ```
 
 这里是本服务的访问令牌，不是上游模型密钥。配置示例的 handler 对 `success:false` 按固定 `error_code` 映射抛出中文错误，不显示上游错误文本；成功按 `res.data.code` 返回 `[undefined, 答案]`，未找到返回 `undefined`。升级后请重新导入完整示例，使 URL 与 handler 同时更新。参考 [OCS 官方接口文档](https://docs.ocsjs.com/docs/other/api)。
@@ -96,7 +86,7 @@ OCS 5.2.1 的 [GM 请求实现](https://github.com/ocsjs/ocsjs/blob/8b25a3f44523
 
 本地缓存或人工题库命中时 `source` 为 `public`。两个查询端点的成功结构相同；未找到或模型拒答返回 HTTP 200 和 `data.code=0, data.data=null`。
 
-`/api/query` 保留 HTTP 状态码：参数错误为 400，访问令牌错误为 401，本地限流为 429，上游失败为 502，容量不足、上游限流或数据库故障为 503，超时为 504，请求取消为 408。`/ocs/query` 的这些业务错误均返回 HTTP 200，正文为 `success:false`、稳定的 `error_code` 和安全的 `error`，不含答案字段或上游内部信息。例如输出达到上限时：
+`/api/query` 保留 HTTP 状态码：参数/图片校验错误为 400，请求体过大为 413，访问令牌错误为 401，本地限流为 429，上游失败为 502，容量不足、上游限流或数据库故障为 503，上游超时为 504，请求取消或请求体读取超时为 408。`/ocs/query` 的这些业务错误均返回 HTTP 200，正文为 `success:false`、稳定的 `error_code` 和安全的 `error`，不含答案字段或上游内部信息。例如输出达到上限时：
 
 ```json
 {"success":false,"error_code":"output_limit","error":"output token limit reached; increase max_tokens or reduce reasoning_effort"}
@@ -106,9 +96,9 @@ OCS 5.2.1 的 [GM 请求实现](https://github.com/ocsjs/ocsjs/blob/8b25a3f44523
 
 ## 数据和部署
 
-SQLite 自动应用版本化迁移，使用 WAL、5 秒锁等待和单连接池；面向单实例和本地持久磁盘。缓存键包括题目、原始选项、规范题型、协议/端点/模型、显式 `reasoning_effort` 和提示词版本。过期记录不会命中；删除、修正或失效前备份数据库。
+SQLite 自动应用版本化迁移，使用 WAL、5 秒锁等待和单连接池；面向单实例和本地持久磁盘。缓存键包括题目、原始选项、规范题型、协议/端点/模型、显式 `reasoning_effort` 和提示词版本；图片题额外包含有序图片摘要及建议文本，已有文字题缓存键保持不变。图片数组不写入数据库或日志，原文中的内联图片使用建议占位文本保存。过期记录不会命中；删除、修正或失效前备份数据库。
 
-人工导入保存到独立的 `reviewed_answers`，不受模型切换或缓存 TTL 影响。schema v2 自动迁移旧 `legacy-reviewed` 中未显式失效且答案无冲突的记录（包括已过期记录）；冲突记录留在原表供复核。普通 AI 缓存不会自动变成人工答案。旧 AI 缓存策略 `answer-v1` 不再命中，避免沿用未做题型校验的答案。升级前备份；回退旧二进制需要恢复旧 schema 的备份。
+人工导入保存到独立的 `reviewed_answers`，文字题仍优先使用，不受模型切换或缓存 TTL 影响。现有人工表没有图片摘要，图片请求不会复用其中的纯文字记录，避免相同文字、不同图片的错误命中；原记录不会被删除或覆盖。schema v2 自动迁移旧 `legacy-reviewed` 中未显式失效且答案无冲突的记录（包括已过期记录）；冲突记录留在原表供复核。普通 AI 缓存不会自动变成人工答案。旧 AI 缓存策略 `answer-v1` 不再命中，避免沿用未做题型校验的答案。升级前备份；回退旧二进制需要恢复旧 schema 的备份。
 
 单选/多选在选项为连续 `A. …`、`B. …` 等逐行标记且内容无歧义时校验选项归属，不猜测字母答案；无明确选项结构时保留兼容性。多选去重，填空保留重复答案和顺序，空分段拒绝；判断题规范为对/错。校验不代表事实正确，OCS 返回结构保持不变。
 
