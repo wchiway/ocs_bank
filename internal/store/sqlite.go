@@ -75,7 +75,7 @@ func (s *SQLite) Put(ctx context.Context, key string, q question.Question, r que
 		return question.ErrProtocol
 	}
 	now := time.Now()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO answers(cache_key,question,options,type,answer,source,model,prompt_version,input_tokens,output_tokens,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET answer=excluded.answer,source=excluded.source,model=excluded.model,prompt_version=excluded.prompt_version,input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,created_at=excluded.created_at,expires_at=excluded.expires_at,invalidated=0`, key, q.Title, q.Options, q.Type, r.Answer, r.Source, r.Model, question.PromptVersion, r.InputTokens, r.OutputTokens, now.Unix(), now.Add(s.ttl).Unix())
+	_, err := s.db.ExecContext(ctx, `INSERT INTO answers(cache_key,question,options,type,answer,source,model,prompt_version,input_tokens,output_tokens,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET answer=excluded.answer,source=excluded.source,model=excluded.model,prompt_version=excluded.prompt_version,input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,created_at=excluded.created_at,expires_at=excluded.expires_at,invalidated=0`, key, q.Title, q.Options, q.Type, r.Answer, r.Source, r.Model, q.Version(), r.InputTokens, r.OutputTokens, now.Unix(), now.Add(s.ttl).Unix())
 	return err
 }
 func (s *SQLite) Invalidate(ctx context.Context, key string) error {

@@ -21,9 +21,24 @@ test('OCS GM transport can deliver business failures to the handler', () => {
     .then(handle)
     .then(() => assert.fail('failure became an answer'), error => assert.match(error.message, /输出达到上限/));
 });
-test('OCS request retains the three expected placeholders', () => {
+test('OCS image requests use POST JSON and retain original question fields', () => {
   assert.equal(new URL(wrapper.url).pathname,'/ocs/query');
   assert.equal(wrapper.type,'GM_xmlhttpRequest');
-  assert.equal(wrapper.method,'get');
-  assert.deepEqual(wrapper.data,{title:'${title}',options:'${options}',type:'${type}'});
+  assert.equal(wrapper.method,'post');
+  assert.equal(wrapper.headers['Content-Type'],'application/json');
+  assert.equal(wrapper.data.title,'${title}');
+  assert.equal(wrapper.data.options,'${options}');
+  assert.equal(wrapper.data.type,'${type}');
+  assert.equal(wrapper.data.suggestion_title,'${suggestion_title}');
+  assert.equal(wrapper.data.suggestion_options,'${suggestion_options}');
+});
+test('OCS field parser preserves image arrays and their order', () => {
+  const images = ['data:image/png;base64,first','data:image/jpeg;base64,second'];
+  const parse = new Function(wrapper.data.images.handler)();
+  assert.deepEqual(parse({images}),images);
+  for (const env of [{}, {images:null}, {images:'not an array'}]) assert.deepEqual(parse(env),[]);
+});
+test('OCS image errors produce safe actionable messages', () => {
+  assert.throws(() => handle({success:false,error_code:'image_invalid',error:'private image data'}), /图片数据无效/);
+  assert.throws(() => handle({success:false,error_code:'request_too_large',error:'private image data'}), /请求过大/);
 });

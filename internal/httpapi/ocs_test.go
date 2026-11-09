@@ -31,6 +31,7 @@ func TestOCSBusinessErrors(t *testing.T) {
 		{context.DeadlineExceeded, "timeout", 504},
 		{context.Canceled, "canceled", 408},
 		{question.ErrInvalid, "invalid", 400},
+		{question.ErrImageInvalid, "image_invalid", 400},
 		{question.ErrUnavailable, "unavailable", 502},
 	} {
 		t.Run(tc.code, func(t *testing.T) {

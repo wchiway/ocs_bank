@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -127,20 +128,45 @@ func New(q question.Querier, o Options) http.Handler {
 			writeQueryError(w, r, 429, category, "rate limited")
 			return
 		}
-		values, err := parseQuery(r)
-		if err != nil {
-			category = "invalid"
-			writeQueryError(w, r, 400, category, "invalid query parameters")
-			return
-		}
 		ctx, cancel := context.WithTimeout(r.Context(), o.Timeout)
 		defer cancel()
+		r = r.WithContext(ctx)
+		if r.Method == http.MethodPost {
+			_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(min(o.Timeout, 10*time.Second)))
+		}
+		values, err := parseQuery(w, r)
+		if err != nil {
+			category = "invalid"
+			status, message := http.StatusBadRequest, "invalid query parameters"
+			var sizeError *http.MaxBytesError
+			var timeout net.Error
+			switch {
+			case errors.As(err, &sizeError):
+				category, status, message = "request_too_large", http.StatusRequestEntityTooLarge, "query request body too large"
+			case errors.Is(err, question.ErrImageInvalid):
+				category, message = "image_invalid", "invalid image data or image limits exceeded"
+			case errors.Is(err, context.Canceled), errors.Is(ctx.Err(), context.Canceled):
+				category, status, message = "canceled", http.StatusRequestTimeout, "request canceled"
+			case errors.Is(err, context.DeadlineExceeded), errors.Is(ctx.Err(), context.DeadlineExceeded), errors.As(err, &timeout) && timeout.Timeout():
+				category, status, message = "timeout", http.StatusRequestTimeout, "request timeout"
+			}
+			if r.Method == http.MethodPost {
+				w.Header().Set("Connection", "close")
+			}
+			writeQueryError(w, r, status, category, message)
+			return
+		}
+		if r.Method == http.MethodPost {
+			_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
+		}
 		res, err = q.Query(ctx, values)
 		category = question.ErrorCategory(err)
 		if err != nil {
 			switch {
 			case errors.Is(err, question.ErrNotFound), errors.Is(err, question.ErrRefused):
 				write(w, 200, response{Success: true, Data: &data{Code: 0, Msg: "未找到答案"}})
+			case errors.Is(err, question.ErrImageInvalid):
+				writeQueryError(w, r, 400, category, "invalid image data or image limits exceeded")
 			case errors.Is(err, question.ErrInvalid):
 				writeQueryError(w, r, 400, category, "invalid question")
 			case errors.Is(err, question.ErrStorage):
@@ -171,7 +197,9 @@ func New(q question.Querier, o Options) http.Handler {
 		write(w, 200, response{Success: true, Data: &data{Code: 1, Data: &res.Answer, Msg: msg, Source: source}})
 	}
 	r.Get("/api/query", query)
+	r.Post("/api/query", query)
 	r.Get("/ocs/query", query)
+	r.Post("/ocs/query", query)
 	// OCS probes the configured URL without query parameters or credentials.
 	r.Head("/ocs/query", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -188,15 +216,4 @@ func writeQueryError(w http.ResponseWriter, r *http.Request, status int, code, m
 		status = http.StatusOK
 	}
 	write(w, status, response{Error: message, ErrorCode: code})
-}
-
-func parseQuery(r *http.Request) (question.Question, error) {
-	if len(r.URL.RawQuery) > 65536 {
-		return question.Question{}, question.ErrInvalid
-	}
-	v, err := urlValues(r)
-	if err != nil {
-		return question.Question{}, err
-	}
-	return (question.Question{Title: v["title"], Options: v["options"], Type: v["type"]}).Normalize()
 }

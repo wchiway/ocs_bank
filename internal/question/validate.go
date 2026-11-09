@@ -10,7 +10,7 @@ var optionLabel = regexp.MustCompile(`^([A-Z])[.、．:：)）][ \t]*(.+)$`)
 // ValidateAnswer checks format and unambiguous option membership, not factual truth.
 func ValidateAnswer(q Question, answer string) (string, error) {
 	answer = strings.TrimSpace(answer)
-	if answer == "" || len(answer) > 32768 {
+	if answer == "" || len(answer) > 32768 || (len(q.Images) > 0 && !validImageReferences(answer, len(q.Images))) {
 		return "", ErrAnswerInvalid
 	}
 	if q.Type == "judgement" {
@@ -37,6 +37,11 @@ func ValidateAnswer(q Question, answer string) (string, error) {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			return "", ErrAnswerInvalid
+		}
+		var err error
+		part, err = restoreImageChoice(q, part)
+		if err != nil {
+			return "", err
 		}
 		if q.Type != "completion" && options != nil && !options[part] {
 			return "", ErrAnswerInvalid

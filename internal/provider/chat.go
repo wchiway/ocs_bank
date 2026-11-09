@@ -8,7 +8,15 @@ import (
 
 type chatMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
+}
+type chatContent struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *chatImageURL `json:"image_url,omitempty"`
+}
+type chatImageURL struct {
+	URL string `json:"url"`
 }
 type chatRequest struct {
 	Model               string        `json:"model"`
@@ -18,8 +26,17 @@ type chatRequest struct {
 	Stream              bool          `json:"stream"`
 }
 
-func chatPayload(c config.Config, input string) chatRequest {
-	r := chatRequest{Model: c.Model, Messages: []chatMessage{{"system", prompt}, {"user", input}}}
+func chatPayload(c config.Config, input string, images []question.Image) chatRequest {
+	var content any = input
+	if len(images) > 0 {
+		blocks := make([]chatContent, 0, len(images)+1)
+		blocks = append(blocks, chatContent{Type: "text", Text: input})
+		for _, image := range images {
+			blocks = append(blocks, chatContent{Type: "image_url", ImageURL: &chatImageURL{URL: image.DataURL()}})
+		}
+		content = blocks
+	}
+	r := chatRequest{Model: c.Model, Messages: []chatMessage{{"system", generationPrompt(images)}, {"user", content}}}
 	if c.ChatTokenParameter == "max_completion_tokens" {
 		r.MaxCompletionTokens = c.MaxTokens
 	} else {

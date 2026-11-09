@@ -8,6 +8,10 @@ import (
 )
 
 func (s *SQLite) GetReviewed(ctx context.Context, q question.Question) (question.Result, error) {
+	// Legacy reviewed rows have no image identity and cannot verify image content.
+	if len(q.Images) > 0 {
+		return question.Result{}, question.ErrNotFound
+	}
 	var r question.Result
 	err := s.db.QueryRowContext(ctx, `SELECT answer,source FROM reviewed_answers WHERE question=? AND options=? AND type=?`, q.Title, q.Options, q.Type).Scan(&r.Answer, &r.Source)
 	if errors.Is(err, sql.ErrNoRows) {
