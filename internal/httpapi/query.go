@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -106,7 +105,7 @@ func decodeQueryBody(reader io.Reader) (queryBody, error) {
 			return body, question.ErrInvalid
 		}
 		seen[key] = true
-		var value any
+		var value *string
 		switch key {
 		case "title":
 			value = &body.Title
@@ -115,23 +114,32 @@ func decodeQueryBody(reader io.Reader) (queryBody, error) {
 		case "type":
 			value = &body.Type
 		case "images":
-			value = &body.Images
+			body.Images, err = decodeImageValues(decoder)
+			if err != nil {
+				return body, err
+			}
+			continue
 		case "suggestion_title":
 			value = &body.SuggestionTitle
 		case "suggestion_options":
 			value = &body.SuggestionOptions
 		case "v":
-			value = &body.Version
+			if err := decoder.Decode(&body.Version); err != nil {
+				return body, err
+			}
+			continue
 		default:
 			return body, question.ErrInvalid
 		}
-		if err := decoder.Decode(value); err != nil {
-			var typeError *json.UnmarshalTypeError
-			if key == "images" && errors.As(err, &typeError) {
-				return body, question.ErrImageInvalid
-			}
+		token, err = decoder.Token()
+		if err != nil {
 			return body, err
 		}
+		text, ok := token.(string)
+		if !ok {
+			return body, question.ErrInvalid
+		}
+		*value = text
 	}
 	if _, err := decoder.Token(); err != nil {
 		return body, err
@@ -143,4 +151,33 @@ func decodeQueryBody(reader io.Reader) (queryBody, error) {
 		return body, err
 	}
 	return body, nil
+}
+
+func decodeImageValues(decoder *json.Decoder) ([]string, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if token != json.Delim('[') {
+		return nil, question.ErrImageInvalid
+	}
+	values := make([]string, 0, question.MaxImages)
+	for decoder.More() {
+		if len(values) >= question.MaxImages {
+			return nil, question.ErrImageInvalid
+		}
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		value, ok := token.(string)
+		if !ok || value == "" {
+			return nil, question.ErrImageInvalid
+		}
+		values = append(values, value)
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	return values, nil
 }

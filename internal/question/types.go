@@ -43,6 +43,9 @@ func (q Question) Normalize() (Question, error) {
 	q.SuggestionOptions = strings.TrimSpace(q.SuggestionOptions)
 	// Inline DOM image sources also appear in OCS's original text. Use its
 	// marker text so those image bytes do not enter prompts or SQLite rows.
+	if len(q.Images) == 0 && (inlineImage.MatchString(q.Title) || inlineImage.MatchString(q.Options)) {
+		return q, ErrImageInvalid
+	}
 	if len(q.Images) > 0 && inlineImage.MatchString(q.Title) {
 		if q.SuggestionTitle == "" {
 			return q, ErrImageInvalid

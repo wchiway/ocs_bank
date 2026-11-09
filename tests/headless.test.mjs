@@ -14,8 +14,8 @@ test('headless distribution has no desktop entry, assets, packaging or guide', (
 });
 
 test('Go modules and active docs do not depend on the desktop runtime', () => {
-  for (const path of ['go.mod', 'README.md', 'AGENTS.md']) {
+  for (const path of ['go.mod', 'README.md', 'AGENTS.md', 'docs/maintenance.md', 'docs/releases.md']) {
     const text = readFileSync(new URL(path, root), 'utf8');
-    assert.doesNotMatch(text, /egoist\/mygo|cmd\/desktop|internal\/desktop|mygo\.json/);
+    assert.doesNotMatch(text, /egoist\/mygo|cmd\/desktop|internal\/desktop|mygo\.json|docs\/desktop\.md/);
   }
 });

@@ -38,7 +38,7 @@ func (i Image) Base64() string    { return i.data }
 func (i Image) DataURL() string   { return "data:" + i.mediaType + ";base64," + i.data }
 
 var imageReference = regexp.MustCompile(`\[图片([0-9]+)\]`)
-var inlineImage = regexp.MustCompile(`data:image/[^\s,]+;base64,`)
+var inlineImage = regexp.MustCompile(`data:(?i:image/)[^,]*;base64,`)
 
 // ParseImages accepts inline images only; it never downloads client-supplied URLs.
 func ParseImages(values []string) ([]Image, error) {
