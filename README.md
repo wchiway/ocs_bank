@@ -28,8 +28,10 @@
 需要 [go.mod](go.mod) 指定的 Go 版本或兼容更新版本（当前 **1.27.1**）。以下复制命令仅用于首次配置；已有部署不要覆盖自己的配置和密钥文件。
 
 ```bash
+umask 077
 cp config.example.json config.json
 cp .env.example .env
+chmod 600 config.json .env
 # 编辑 config.json：填写模型、协议和 API 根地址。
 # 编辑 .env：填写 AI_API_KEY；不要提交该文件。
 go run ./cmd/server -config config.json
@@ -63,16 +65,27 @@ CGO_ENABLED=0 go build -trimpath -o bin/ocs-migrate ./cmd/migrate
 
 [docker-compose.yml](docker-compose.yml) 使用 `ghcr.io/wchiway/ocs_bank:latest`，将配置、密钥只读挂载到 `/config`，将数据库目录挂载到 `/data`。
 
+以下属主与权限命令适用于 **Linux 上未启用用户命名空间映射的 Docker**，仅用于首次部署。先限制主机权限，再填写凭据，最后只授予容器对应组读取配置的权限：
+
 ```bash
+umask 077
 cp examples/container.json config.json
 cp .env.example .env
+chmod 600 config.json .env
 # 编辑模型配置，在 .env 填写 AI_API_KEY 与 OCS_ACCESS_TOKEN。
 mkdir -p data
-# Linux 宿主机：确保镜像用户 UID/GID 65532 可写入该目录。
+# 保留主机文件拥有者的读写权限，让容器 GID 65532 只读两个配置文件。
+sudo chgrp 65532 config.json .env
+chmod 640 config.json .env
+# 数据目录专供此服务使用，让容器 UID/GID 65532 可写入。
 sudo chown 65532:65532 data
 docker compose pull
 docker compose up -d
 ```
+
+Rootless Docker、`userns-remap` 和 Docker Desktop 的主机身份映射可能不同，应使用实际映射的容器 UID/GID 或相应 ACL 设置权限；不要直接套用主机 ID 65532。`config.json` 和 `.env` 都必须对容器身份可读，但 `.env` 不能为了启动方便改成所有用户可读。
+
+复用 `data` 时，先停服并备份，再检查本服务的数据库主文件及已有 WAL/SHM 文件。它们也必须对实际容器身份可读写；**只调整目录属主不够**。权限调整应仅针对本服务数据，不要递归修改混有其它应用文件的目录。
 
 三个挂载路径必须提前存在，缺失时直接报错。容器配置应保留：
 
@@ -80,9 +93,11 @@ docker compose up -d
 - `database`: `/data/question_bank.db`
 - `access_token_env`: `OCS_ACCESS_TOKEN`，并在 `.env` 中设置非空的对应令牌。
 
-宿主机默认发布 `0.0.0.0:5000`，可用 `OCS_BANK_PORT` 修改端口。本机浏览器使用 `http://127.0.0.1:5000`，其它设备使用宿主机可达地址。非回环监听必须启用服务令牌；上游密钥 `AI_API_KEY` 不能代替它。
+宿主机默认发布 `0.0.0.0:5000`，可用 `OCS_BANK_PORT` 修改端口。本机浏览器可使用 `http://127.0.0.1:5000`；**跨设备访问应使用 HTTPS 反向代理**，避免不可信局域网中的监听者截获 Bearer 令牌。非回环监听必须启用服务令牌；上游密钥 `AI_API_KEY` 不能代替它。
 
-镜像以非 root 用户运行。私密 package 需先通过有读取权限的 GitHub 身份执行 `docker login ghcr.io`。公网部署应使用 HTTPS 反向代理，保留访问令牌，不暴露数据库；代理超时应大于查询总预算，图片请求还需核对代理的请求体大小限制。
+代理在宿主机运行时，可将 Compose **原有端口发布项**改为回环绑定，例如 `127.0.0.1:5000:5000`；或用防火墙限制只有可信代理能接入 HTTP 后端。不要在保留原有全网绑定的同时另加一条回环绑定，也不要让不可信网络绕过 HTTPS 直接访问明文端口。
+
+镜像以非 root 用户运行。私密 package 需先通过有读取权限的 GitHub 身份执行 `docker login ghcr.io`。代理超时应大于查询总预算，图片请求还需核对代理的请求体大小限制；对外保留访问令牌，不暴露数据库。
 
 **`latest` 只随成功的正式版本发布更新，合并 `main` 不会更新已部署镜像。** 使用图片题前，确认运行版本已包含该功能；尚无对应正式镜像时，可从当前源码构建服务。
 
