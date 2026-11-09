@@ -1,153 +1,254 @@
 # OCS Bank
 
-基于 **Go + chi + SQLite** 的 OCS 题库服务。支持 Chat Completions、Anthropic Messages 和 Responses 三种上游协议；先查人工确认题库，再查 AI 缓存，未命中再调用模型。AI 生成内容不代表已经人工验证，缓存记录保留来源并支持失效。
+基于 **Go + chi + 纯 Go SQLite** 的 OCS 题库与 AI 答案缓存服务，提供无界面的命令行和 Docker 部署方式。支持文字题、图片题，以及 Chat Completions、Anthropic Messages、OpenAI Responses 三种上游协议。
 
-## 快速运行
+文字题先查人工确认题库，再查有效 AI 缓存，未命中才调用模型。图片题使用原生多模态输入，并按图片内容隔离缓存。**AI 答案及其缓存不等同于人工验证，题型校验也不保证事实正确。**
 
-需要 `go.mod` 指定的 Go 版本或兼容更新版本（当前 1.27.1）。
+- [快速开始](#快速开始)
+- [接入 OCS 与图片题](#接入-ocs-与图片题)
+- [HTTP 接口](#http-接口)
+- [模型与服务配置](#模型与服务配置)
+- [数据与维护](#数据与维护)
+- [升级与版本发布](#升级与版本发布)
+- [开发与验证](#开发与验证)
+
+## 主要能力
+
+- **缓存与并发控制**：SQLite 持久缓存、共享在途请求、限流、排队上限、超时及取消传播。
+- **多协议图片输入**：PNG、JPEG、GIF、WebP 内联图片，独立图片内容块，不把 Base64 当作文字 prompt。
+- **安全错误返回**：失败、截断和无效答案不缓存；OCS handler 根据固定错误码显示提示，不暴露上游响应或密钥。
+- **知识与审计分离**：人工答案、AI 缓存和每次上游调用记录独立保存；缓存命中不产生新的模型调用记录。
+- **离线维护工具**：数据库统计、清理预览、一致性备份、恢复到新文件及旧 Python 数据迁移。
+- **无 CGO 构建**：服务和维护工具不依赖 Node.js、前端构建工具或系统图形组件。
+
+## 快速开始
+
+### 本机运行
+
+需要 [go.mod](go.mod) 指定的 Go 版本或兼容更新版本（当前 **1.27.1**）。以下复制命令仅用于首次配置；已有部署不要覆盖自己的配置和密钥文件。
 
 ```bash
+umask 077
 cp config.example.json config.json
 cp .env.example .env
-# 编辑 config.json，设置模型、协议和 API 根地址。
-# 编辑 .env，填写 AI_API_KEY。不要提交 .env。
+chmod 600 config.json .env
+# 编辑 config.json：填写模型、协议和 API 根地址。
+# 编辑 .env：填写 AI_API_KEY；不要提交该文件。
 go run ./cmd/server -config config.json
 ```
 
-API 密钥固定从 **配置文件同目录的 `.env`** 读取，格式为 `AI_API_KEY=你的密钥`。例如 `-config /etc/ocs/config.json` 会读取 `/etc/ocs/.env`，与启动目录无关。支持注释和引号；`.env` 缺失、格式错误或密钥为空时启动失败，不回退到进程中的 `AI_API_KEY`。
+默认监听 `127.0.0.1:5000`，数据库为 `question_bank.db`。相对数据库路径基于运行目录；生产环境建议使用绝对路径。
 
-`config.json` 不再接受 `api_key_env` 或内联 API 密钥，升级时请删除旧的 `api_key_env` 字段。`.env` 已被 Git 和 Docker 构建上下文忽略，仅提交无密钥的 `.env.example`。
+API 密钥固定从**配置文件同目录的 `.env`** 读取，格式为 `AI_API_KEY=你的上游密钥`。例如 `-config /etc/ocs/config.json` 会读取 `/etc/ocs/.env`，与启动目录无关。支持注释和引号；文件缺失、格式错误或 `AI_API_KEY` 为空时启动失败，不回退到进程中的同名变量。
 
-默认监听 `127.0.0.1:5000`。配置或密钥缺失时启动失败。运行目录决定相对数据库路径；生产环境建议使用绝对路径。
+`config.json` 不接受内联 API 密钥或旧的 `api_key_env` 字段。应用设置和秘密必须分开；真实 `.env`、运行配置和数据库不得提交。
+
+检查连接和文字查询：
 
 ```bash
 xh -I http://127.0.0.1:5000/healthz
-xh -I http://127.0.0.1:5000/api/query title=='1+1=?' options=='A. 1 B. 2 C. 3' type==single
+xh -I POST http://127.0.0.1:5000/api/query \
+  title='1+1=?' options=$'A. 1\nB. 2\nC. 3' type=single
 ```
 
-构建不依赖 CGO 的二进制：
+这是免令牌的默认本机配置。启用服务访问令牌后，实际查询需携带 `Authorization: Bearer …`；存活检查仍公开。
+
+构建三个无 CGO 工具：
 
 ```bash
 CGO_ENABLED=0 go build -trimpath -o bin/ocs-bank ./cmd/server
-go build -o bin/ocs-migrate ./cmd/migrate
+CGO_ENABLED=0 go build -trimpath -o bin/ocs-maintain ./cmd/maintain
+CGO_ENABLED=0 go build -trimpath -o bin/ocs-migrate ./cmd/migrate
 ```
 
-## 三种上游协议
+### Docker 部署
 
-| protocol | 默认资源路径 | 示例配置 |
-|---|---|---|
-| `chat` / `chat_completions` | `/chat/completions` | [config.example.json](config.example.json) |
-| `message` / `messages` | `/messages` | [examples/messages.json](examples/messages.json) |
-| `response` / `responses` | `/responses` | [examples/responses.json](examples/responses.json) |
+[docker-compose.yml](docker-compose.yml) 使用 `ghcr.io/wchiway/ocs_bank:latest`，将配置、密钥只读挂载到 `/config`，将数据库目录挂载到 `/data`。
 
-`base_url` 是包含版本前缀的 API 根地址，例如 `https://api.example.com/v1`。只追加上表资源路径，不重复添加 `/v1`。兼容网关的子路径也会保留。`endpoint_path` 可覆盖整个 URL 路径，例如 `/custom/v2/generate`；不能包含主机、查询参数或片段。非本机上游必须使用 HTTPS。
-
-三个协议独立构造请求、鉴权和解析响应，支持非流式文字和图片问答，不执行工具。文字题保持原有纯文本请求格式；图片题使用各协议的原生图片内容块，模型和兼容网关必须支持图片输入。模型仍须返回文本 JSON 答案；服务不强制发送厂商特定的结构化输出参数。Chat 默认发送 `max_tokens`，需要新字段的模型可配置 `"chat_token_parameter": "max_completion_tokens"`。
-
-Responses 可选配置 `reasoning_effort`，服务将其发送为 `reasoning: {"effort": "…"}`。允许值为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；具体模型支持哪些值由上游决定。省略时不发送该字段，保持原有行为和上游默认值。此配置仅用于 `response` / `responses`，其他协议配置非空值会导致启动校验失败。
-
-| 配置 | 默认值 | 含义 |
-|---|---|---|
-| `listen` | `127.0.0.1:5000` | HTTP 监听地址 |
-| `database` | `question_bank.db` | SQLite 文件路径 |
-| `access_token_env` | 空 | 服务访问令牌变量名，优先从 `.env` 读取，未定义时兼容进程环境 |
-| `timeout_seconds` | 60 | 查询与上游重试的总预算，1–600 秒 |
-| `max_concurrent` | 4 | 最大同时模型调用数 |
-| `max_pending` | 64 | 最大等待调用者数量，包含共享请求 |
-| `max_retries` | 2 | 首次调用后的重试次数，0–5 |
-| `max_tokens` | 1024 | 对应协议的输出 token 上限；Responses 映射为 `max_output_tokens`，可包含推理与最终答案 |
-| `reasoning_effort` | 省略 | 仅 Responses；显式指定模型的推理强度 |
-| `requests_per_minute` | 120 | 所有已认证查询共享的固定窗口限流 |
-| `cache_ttl_hours` | 720 | 缓存有效期，1–87600 小时 |
-
-`model` 和 `base_url` 必填，模型名称由所选服务商决定。切换模型、端点、协议或显式 `reasoning_effort` 会使用新的 AI 缓存命名空间；人工确认题库不受影响。题型采用 OCS 的 `single`、`multiple`、`judgement`、`completion`；未知题型可以传递给模型，缓存仍按类型隔离。
-
-使用 Qwen Responses 时，可参考 [examples/qwen-responses.json](examples/qwen-responses.json)，其中 `qwen3.8-flash` 使用 `reasoning_effort: "low"`、`max_tokens: 4096`、60 秒总预算。示例中的 `https://api.example.com/v1` 是占位地址，必须按服务商或网关提供的 Responses 端点替换 `base_url`，必要时设置 `endpoint_path`；不能直接假定 Chat Completions 根地址支持 Responses。[阿里云 Responses 文档](https://www.alibabacloud.com/help/zh/model-studio/qwen-api-via-openai-responses) 说明 Qwen3.8 默认推理强度为 `xhigh`，且 `max_output_tokens` 同时限制推理和最终答案。输出预算过小可能在生成完整 JSON 前耗尽，服务会拒绝截断答案。配置与部署步骤见[维护文档](docs/maintenance.md#ocs-连接失败与模型输出排障)。
-
-## 接入 OCS
-
-将 [examples/ocs.json](examples/ocs.json) 的整个 JSON 数组填入 OCS 自定义题库配置。修改 `url` 为浏览器能访问的 `/ocs/query` 地址。配置使用 POST JSON 和 `GM_xmlhttpRequest`，保留原始题干/选项并通过字段解析器传递图片数组；按脚本管理器要求允许相应 `@connect` 域名。图片题需开启 OCS 的“图片题优化”，并使用支持图片输入的模型与网关，完整字段、限制和排障见[图片题接入文档](docs/images.md)。
-
-OCS 5.2.1 的 [GM 请求实现](https://github.com/ocsjs/ocsjs/blob/8b25a3f44523a0d4b7373878488056f4aa478cf6/packages/core/src/core/utils/request.ts#L48) 只将 HTTP 200 的响应交给 handler；非 200 会先被归为连接失败。`GET/POST /ocs/query` 使用与 `GET/POST /api/query` 相同的认证、限流和查询服务，将业务错误以 HTTP 200 的 JSON 返回，让 handler 能显示具体原因。OCS 的连接测试使用公开的 `HEAD /ocs/query`，无需参数或令牌，不调用模型、不占查询限流额度；测试通过只代表此探测端点可达，不能验证访问令牌、数据库或模型调用。
-
-若启用访问令牌，在题库配置对象增加：
-
-```json
-"headers": {"Content-Type": "application/json", "Authorization": "Bearer YOUR_SERVICE_ACCESS_TOKEN"}
-```
-
-这里是本服务的访问令牌，不是上游模型密钥。配置示例的 handler 对 `success:false` 按固定 `error_code` 映射抛出中文错误，不显示上游错误文本；成功按 `res.data.code` 返回 `[undefined, 答案]`，未找到返回 `undefined`。升级后请重新导入完整示例，使 URL 与 handler 同时更新。参考 [OCS 官方接口文档](https://docs.ocsjs.com/docs/other/api)。
-
-成功响应：
-
-```json
-{"success":true,"data":{"code":1,"data":"2","msg":"AI回答","source":"ai"}}
-```
-
-本地缓存或人工题库命中时 `source` 为 `public`。两个查询端点的成功结构相同；未找到或模型拒答返回 HTTP 200 和 `data.code=0, data.data=null`。
-
-`/api/query` 保留 HTTP 状态码：参数/图片校验错误为 400，请求体过大为 413，访问令牌错误为 401，本地限流为 429，上游失败为 502，容量不足、上游限流或数据库故障为 503，上游超时为 504，请求取消或请求体读取超时为 408。`/ocs/query` 的这些业务错误均返回 HTTP 200，正文为 `success:false`、稳定的 `error_code` 和安全的 `error`，不含答案字段或上游内部信息。例如输出达到上限时：
-
-```json
-{"success":false,"error_code":"output_limit","error":"output token limit reached; increase max_tokens or reduce reasoning_effort"}
-```
-
-新增分类 `output_limit` 表示上游明确报告输出达到上限，`answer_format` 表示答案不是约定的 JSON，`answer_invalid` 表示答案未通过题型校验；其他不兼容响应仍归为 `protocol`。这些错误都不会作为答案返回或缓存。分类与排障步骤见[维护文档](docs/maintenance.md#ocs-连接失败与模型输出排障)。
-
-## 数据和部署
-
-SQLite 自动应用版本化迁移，使用 WAL、5 秒锁等待和单连接池；面向单实例和本地持久磁盘。缓存键包括题目、原始选项、规范题型、协议/端点/模型、显式 `reasoning_effort` 和提示词版本；图片题额外包含有序图片摘要及建议文本，已有文字题缓存键保持不变。图片数组不写入数据库或日志，原文中的内联图片使用建议占位文本保存。过期记录不会命中；删除、修正或失效前备份数据库。
-
-人工导入保存到独立的 `reviewed_answers`，文字题仍优先使用，不受模型切换或缓存 TTL 影响。现有人工表没有图片摘要，图片请求不会复用其中的纯文字记录，避免相同文字、不同图片的错误命中；原记录不会被删除或覆盖。schema v2 自动迁移旧 `legacy-reviewed` 中未显式失效且答案无冲突的记录（包括已过期记录）；冲突记录留在原表供复核。普通 AI 缓存不会自动变成人工答案。旧 AI 缓存策略 `answer-v1` 不再命中，避免沿用未做题型校验的答案。升级前备份；回退旧二进制需要恢复旧 schema 的备份。
-
-单选/多选在选项为连续 `A. …`、`B. …` 等逐行标记且内容无歧义时校验选项归属，不猜测字母答案；无明确选项结构时保留兼容性。多选去重，填空保留重复答案和顺序，空分段拒绝；判断题规范为对/错。校验不代表事实正确，OCS 返回结构保持不变。
-
-`upstream_calls` 独立记录每次 HTTP 尝试（含重试、失败）的时间、模型、协议、结果与可获得的 token 用量。缓存命中不增加调用；覆盖答案不会覆盖历史调用。用量缺失记为 NULL，不能当作零费用；记录不包含题目、答案、响应体、端点或密钥。数据库写入失败时保留有效答案并输出脱敏错误，统计不是服务商账单。
-
-将单条 AI 缓存失效：`UPDATE answers SET invalidated=1 WHERE cache_key=?`（使用 SQLite 客户端绑定参数）。失效后下一次查询优先查询人工题库，再按需生成。过期记录不会自动删除；独立 `ocs-maintain` 支持统计、清理预览、分批删除、一致性备份和恢复到新文件，不加载服务配置或密钥。`/api/stats` 提供进程运行指标，`/readyz` 提供数据库就绪检查。使用方法见 [维护文档](docs/maintenance.md)。
-
-容器部署使用 [docker-compose.yml](docker-compose.yml)，直接拉取 GitHub Packages 的 `ghcr.io/wchiway/ocs_bank:latest` 镜像，无需本地构建或设置版本变量。[版本发布流程](docs/releases.md) 在正式发布时同时推送完整版本 tag 和 `latest`；预发布只推送完整预发布 tag，不更新 `latest`。首次使用前需成功发布一个包含此流程的正式版本。
+以下属主与权限命令适用于 **Linux 上未启用用户命名空间映射的 Docker**，仅用于首次部署。先限制主机权限，再填写凭据，最后只授予容器对应组读取配置的权限：
 
 ```bash
+umask 077
 cp examples/container.json config.json
 cp .env.example .env
-# 修改模型等配置，在 .env 填写 AI_API_KEY 与 OCS_ACCESS_TOKEN。
+chmod 600 config.json .env
+# 编辑模型配置，在 .env 填写 AI_API_KEY 与 OCS_ACCESS_TOKEN。
 mkdir -p data
-# Linux 宿主机：镜像以 UID/GID 65532 运行，需要能写入数据目录。
+# 保留主机文件拥有者的读写权限，让容器 GID 65532 只读两个配置文件。
+sudo chgrp 65532 config.json .env
+chmod 640 config.json .env
+# 数据目录专供此服务使用，让容器 UID/GID 65532 可写入。
 sudo chown 65532:65532 data
 docker compose pull
 docker compose up -d
 ```
 
-私密 package 需要先用具备读取权限的 GitHub 身份执行 `docker login ghcr.io`。后续更新时执行 `docker compose pull && docker compose up -d`，拉取并使用更新后的 `latest` 镜像。
+Rootless Docker、`userns-remap` 和 Docker Desktop 的主机身份映射可能不同，应使用实际映射的容器 UID/GID 或相应 ACL 设置权限；不要直接套用主机 ID 65532。`config.json` 和 `.env` 都必须对容器身份可读，但 `.env` 不能为了启动方便改成所有用户可读。
 
-Compose 将 `config.json` 和 `.env` 只读挂载到同一个 `/config` 目录。容器配置必须保留 `"listen": "0.0.0.0:5000"`、`"database": "/data/question_bank.db"` 和 `"access_token_env": "OCS_ACCESS_TOKEN"`，不要用本地运行示例中的回环监听地址。宿主机默认发布 `0.0.0.0:5000`，可通过 `OCS_BANK_PORT` 修改宿主机端口；宿主机通过 `http://127.0.0.1:5000` 访问，其他设备使用宿主机 IP。非回环监听要求 `.env` 中配置非空的 `OCS_ACCESS_TOKEN`，OCS 请求需携带对应 Bearer 令牌。
+复用 `data` 时，先停服并备份，再检查本服务的数据库主文件及已有 WAL/SHM 文件。它们也必须对实际容器身份可读写；**只调整目录属主不够**。权限调整应仅针对本服务数据，不要递归修改混有其它应用文件的目录。
 
-若启动时报 `non-loopback listen requires access_token_env with a nonempty secret`，检查 `config.json` 是否设置了 `"access_token_env": "OCS_ACCESS_TOKEN"`，再确认其同目录 `.env` 包含非空的 `OCS_ACCESS_TOKEN=你自己设置的服务访问令牌`。`access_token_env` 填的是变量名；它与上游密钥 `AI_API_KEY` 是两项配置。只改 `listen` 或只往 `.env` 添加令牌都不够。该错误发生在 `.env` 解析和 `AI_API_KEY` 校验通过之后，并不代表整个 `.env` 未读取。修改文件后执行 `docker compose up -d --force-recreate bank`，让进程重新加载配置，同时刷新可能被编辑器替换过的单文件挂载。
+三个挂载路径必须提前存在，缺失时直接报错。容器配置应保留：
 
-SQLite 目录显式绑定为 `./data:/data`，宿主机文件为 `./data/question_bank.db`，WAL/SHM 文件也保存在同一目录；重建容器后数据仍在。三个挂载路径必须提前准备好，缺失时直接报错。旧 `compose.yaml` 已由 `docker-compose.yml` 替代；从旧部署升级前，先停止旧容器并备份、导出原 `bank-data` 命名卷中的数据到 `./data`，再调整目录及已有数据库文件的属主为 `65532:65532`，避免新容器使用空数据库。
+- `listen`: `0.0.0.0:5000`
+- `database`: `/data/question_bank.db`
+- `access_token_env`: `OCS_ACCESS_TOKEN`，并在 `.env` 中设置非空的对应令牌。
 
-容器内以非 root 用户运行；对公网提供服务时使用 HTTPS 反向代理，保留访问令牌，不暴露数据库。代理超时应大于查询总超时。服务响应 SIGINT/SIGTERM，取消模型调用并进行最长 10 秒的 HTTP 退出等待。
+宿主机默认发布 `0.0.0.0:5000`，可用 `OCS_BANK_PORT` 修改端口。本机浏览器可使用 `http://127.0.0.1:5000`；**跨设备访问应使用 HTTPS 反向代理**，避免不可信局域网中的监听者截获 Bearer 令牌。非回环监听必须启用服务令牌；上游密钥 `AI_API_KEY` 不能代替它。
 
-旧 Python 数据迁移与回退见 [docs/migration.md](docs/migration.md)。旧代码只保存在本地 `legacy/python` 和原 upstream，历史包含凭据，禁止推送到新仓库。
+代理在宿主机运行时，可将 Compose **原有端口发布项**改为回环绑定，例如 `127.0.0.1:5000:5000`；或用防火墙限制只有可信代理能接入 HTTP 后端。不要在保留原有全网绑定的同时另加一条回环绑定，也不要让不可信网络绕过 HTTPS 直接访问明文端口。
 
-## 开发和验证
+镜像以非 root 用户运行。私密 package 需先通过有读取权限的 GitHub 身份执行 `docker login ghcr.io`。代理超时应大于查询总预算，图片请求还需核对代理的请求体大小限制；对外保留访问令牌，不暴露数据库。
 
-所有修改遵循 **worktree → 任务分支 → PR → merge**，禁止直接开发或提交到 `main`。详见 [AGENTS.md](AGENTS.md) 和 [CONTRIBUTING.md](CONTRIBUTING.md)。
+**`latest` 只随成功的正式版本发布更新，合并 `main` 不会更新已部署镜像。** 使用图片题前，确认运行版本已包含该功能；尚无对应正式镜像时，可从当前源码构建服务。
+
+## 接入 OCS 与图片题
+
+1. 先启动支持 POST 图片接口的服务。旧的 GET-only 服务直接使用新配置会返回 405。
+2. 将 [examples/ocs.json](examples/ocs.json) 的**整个 JSON 数组**填入 OCS 自定义题库配置，修改 `url` 为浏览器可达的 `/ocs/query` 地址。
+3. 使用 `GM_xmlhttpRequest`，按脚本管理器提示允许相应 `@connect` 域名。
+4. 图片题使用 OCS 5.4.0 或兼容更新版本，在“通用 → 全局设置 → 高级设置”开启“图片题优化”。
+
+新版配置使用 **POST JSON**，通过字段解析器将 `env.images` 作为数组传递，同时发送原始 `title`、`options`、`type` 和带 `[图片N]` 标记的 `suggestion_title`、`suggestion_options`。**不要写成 `"images": "${images}"`，也不要把 Base64 拼进题干或 URL。**
+
+启用服务访问令牌时，合并以下请求头，并保留示例中的其它配置：
+
+```json
+{
+  "Content-Type": "application/json",
+  "Authorization": "Bearer YOUR_SERVICE_ACCESS_TOKEN"
+}
+```
+
+该对象是题库配置的 `headers` 字段，令牌属于本服务，**不是上游 AI 密钥**。
+
+### 图片能力与限制
+
+模型和兼容网关必须支持所选协议的原生图片输入；文字题成功或配置提醒消失，都不能证明模型已看到图片。
+
+| 项目 | 限制 |
+| --- | --- |
+| 格式 | PNG、JPEG、GIF、WebP 的 Base64 Data URL |
+| 数量 | 最多 6 张，顺序对应 `[图片1]`、`[图片2]` 等标记 |
+| 单张大小 | 解码后最多 3 MiB |
+| 合计大小 | 解码后最多 12 MiB |
+| 尺寸 | 单张最多 2000 万像素，每条边最多 8192 像素；从图片头读取 |
+| POST 请求体 | 最多 17 MiB，包含 Base64、题目原文和 JSON 开销 |
+| 请求体读取 | 最多 10 秒，且不超过查询总预算 |
+
+服务不下载客户端提供的图片 URL。GET 或空图片数组不能携带内联图片源；原文中的内联 Base64 必须配有图片数组和建议文本，保存与发送文字时使用占位文本替代。图片数组不写入数据库或日志。
+
+连续标记且无歧义的图片选项会还原后校验；无明确结构或多行选项不做猜测。答案中的 `[图片N]` 可由 OCS 按本题图片顺序还原；直接使用 API 的调用者也需处理这种标记。
+
+完整字段、MIME 修正、图片格式要求及排障见[图片题接入文档](docs/images.md)；自定义题库规范参考 [OCS 官方开发文档](https://docs.ocsjs.com/docs/other/api)。
+
+## HTTP 接口
+
+| 方法与路径 | 用途 | 访问控制 |
+| --- | --- | --- |
+| `POST /ocs/query` | OCS 文字/图片查询，业务错误也返回 HTTP 200 | 服务令牌与共享限流 |
+| `POST /api/query` | 文字/图片 JSON 查询，保留业务 HTTP 状态码 | 服务令牌与共享限流 |
+| `GET /ocs/query`、`GET /api/query` | 兼容旧的文字查询，不接收图片字段 | 服务令牌与共享限流 |
+| `HEAD /ocs/query` | OCS 连接探测，不调用数据库或模型 | 公开，不消耗查询额度 |
+| `GET /healthz` | 进程存活检查 | 公开 |
+| `GET /readyz` | 数据库就绪检查 | 公开 |
+| `GET /api/stats` | 本次运行的指标，不是历史账单 | 服务令牌规则 |
+
+未配置令牌时，默认本机服务免认证。**HEAD 探测通过仅说明端点可达，不验证访问令牌、图片、数据库或模型调用。**
+
+查询成功：
+
+```json
+{"success":true,"data":{"code":1,"data":"2","msg":"AI回答","source":"ai"}}
+```
+
+缓存或人工题库命中时 `source` 为 `public`。未找到或模型拒答仍返回 HTTP 200，但 `data.code=0`、`data.data=null`。
+
+查询失败：
+
+```json
+{"success":false,"error_code":"image_invalid","error":"invalid image data or image limits exceeded"}
+```
+
+OCS 的 GM 请求可能不会将非 200 响应交给自定义 handler，因此 `/ocs/query` 用 HTTP 200 承载安全业务错误。`/api/query` 保留状态码：参数/图片错误 400、认证错误 401、过大请求体 413、本地限流 429、上游失败 502、容量不足/上游限流/存储故障 503、上游超时 504、请求取消或请求体读取超时 408。
+
+`image_invalid`、`request_too_large`、`output_limit`、`answer_format`、`answer_invalid` 等错误不带答案、不缓存。示例 handler 只按固定错误码显示中文提示，未知错误使用通用消息，不显示上游内部信息。详见[维护与排障文档](docs/maintenance.md#ocs-连接失败与模型输出排障)。
+
+## 模型与服务配置
+
+| `protocol` | 默认追加资源路径 | 示例配置 |
+| --- | --- | --- |
+| `chat` / `chat_completions` | `/chat/completions` | [config.example.json](config.example.json) |
+| `message` / `messages` | `/messages` | [examples/messages.json](examples/messages.json) |
+| `response` / `responses` | `/responses` | [examples/responses.json](examples/responses.json) |
+
+`model` 和 `base_url` 必填，示例模型与地址应按服务商实际要求修改。`base_url` 是 API 根地址，例如 `https://api.example.com/v1`；服务只追加上表资源路径，不额外重复 `/v1`。`endpoint_path` 可覆盖整个路径，但不能包含主机、查询参数或片段。非本机上游必须使用 HTTPS。
+
+三个协议分别构造请求、鉴权和响应解析，使用非流式文本 JSON 答案，不执行工具。文字题保持纯文本请求；图片题按协议生成原生图片内容块。Chat 默认发送 `max_tokens`，需要新字段的模型可设置 `chat_token_parameter: "max_completion_tokens"`。
+
+| 配置 | 默认值 | 含义 |
+| --- | --- | --- |
+| `listen` | `127.0.0.1:5000` | HTTP 监听地址 |
+| `database` | `question_bank.db` | SQLite 文件路径 |
+| `access_token_env` | 空 | 服务令牌变量名；优先从 `.env` 读取，未定义时兼容进程环境 |
+| `timeout_seconds` | 60 | 查询与上游重试总预算，1–600 秒 |
+| `max_concurrent` | 4 | 同时模型调用上限 |
+| `max_pending` | 64 | 等待调用者上限，包含共享请求 |
+| `max_retries` | 2 | 首次调用后重试次数，0–5 |
+| `max_tokens` | 1024 | 协议对应的输出 token 上限；Responses 可包含推理与最终答案 |
+| `reasoning_effort` | 省略 | 仅 Responses 的显式推理强度 |
+| `requests_per_minute` | 120 | 所有已认证查询共享的固定窗口限流 |
+| `cache_ttl_hours` | 720 | AI 缓存有效期，1–87600 小时 |
+
+Responses 的 `reasoning_effort` 允许 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，实际支持范围由模型决定。省略时保留上游默认行为；其他协议不能配置非空值。输出预算不足可能在生成完整 JSON 前耗尽，截断答案会被拒绝。
+
+[Qwen Responses 示例](examples/qwen-responses.json) 演示 `reasoning_effort: "low"`、`max_tokens: 4096` 和 60 秒预算，**不代表该模型或网关必然支持图片**。根地址及输出设置必须按上游文档核对，处理方式见[模型输出排障](docs/maintenance.md#ocs-连接失败与模型输出排障)。
+
+## 数据与维护
+
+SQLite 使用 WAL、5 秒锁等待和单连接池，面向单实例及本地持久磁盘。数据库目录与 WAL/SHM 文件需一起保存；不要直接复制或替换活跃数据库主文件。
+
+- **文字人工题库**：`reviewed_answers` 优先，不受模型切换或 AI 缓存 TTL 影响。旧人工表没有图片身份，图片请求不复用这些记录，但不会删除或覆盖它们。
+- **AI 缓存**：按题目、原始选项、规范题型、协议/端点/模型、显式推理强度及提示词版本隔离；图片题另加入有序图片摘要和建议文本。旧文字题缓存键保持不变，过期或失效记录不命中。
+- **调用审计**：`upstream_calls` 记录每次 HTTP 尝试（含重试/失败）与可获得的 token 用量，不记录题目、答案、响应体、端点或密钥。缺失用量不能当作零费用。
+
+题型采用 `single`、`multiple`、`judgement`、`completion`。连续标记的单选/多选校验选项归属；多选去重，填空保留顺序和重复答案，判断题规范为对/错。无明确选项结构时保留兼容性；这些检查不保证答案的事实正确性。
+
+维护工具不加载服务配置、dotenv 或 AI：
+
+```bash
+bin/ocs-maintain -database /srv/ocs/data/question_bank.db -action stats
+bin/ocs-maintain -database /srv/ocs/data/question_bank.db -action prune -model your-model
+bin/ocs-maintain -database /srv/ocs/data/question_bank.db -action backup -output /srv/ocs/backups/bank-backup.db
+```
+
+清理默认只预览，实际删除需显式 `-apply`；备份/恢复输出目录须提前存在，已有目标文件不覆盖。完整规则见[维护文档](docs/maintenance.md)，旧 Python 数据迁移与回退见[迁移文档](docs/migration.md)。
+
+## 升级与版本发布
+
+1. 停服或使用一致性备份保存现有数据，核对示例差异，不覆盖自己的模型配置和秘密。
+2. 更新服务二进制或拉取已包含所需功能的正式镜像；Compose 更新可使用 `docker compose pull && docker compose up -d --force-recreate bank`。
+3. 修改过配置或密钥后重启服务，刷新可能被编辑器替换过的只读单文件挂载。
+4. 重新导入完整 OCS 示例，使 URL、POST 图片字段和错误 handler 同步更新；先做连接探测，再验证少量实际查询。
+
+图片题功能不需要新增数据库 schema；旧数据继续保留。服务自动应用已有版本化迁移；回退旧二进制需要使用与其兼容的数据库备份，不能直接假定新 schema 可由旧程序打开。
+
+正式版本 tag 创建 Release 并发布完整版本 GHCR 镜像，再按构建 digest 安全提升 `latest`；预发布 tag 创建 Pre-release 和完整预发布镜像，不更新 `latest`。**普通提交和 PR 合并不会创建 Release 或更新镜像。** Release 下载仅提供 GitHub 自动生成的源码包，命令行二进制需自行编译。
+
+发布时的 DeepSeek 中文总结与镜像任务相互独立，需由管理员配置 Actions Secret `DEEPSEEK_API_KEY`。发布、通道、重跑和回退规则见[版本发布文档](docs/releases.md)。
+
+## 开发与验证
+
+所有修改，包括文档，都遵循 **worktree → 任务分支 → PR → merge**，禁止直接开发或提交到 `main`。详见 [AGENTS.md](AGENTS.md) 和 [CONTRIBUTING.md](CONTRIBUTING.md)。不要使用 `git push --all` 或 `--mirror`，本地 `legacy/python` 含历史凭据，必须保持本地。
 
 ```bash
 gofmt -w cmd internal migrations tests
 go vet ./...
 go test ./... -timeout 90s
 go test -race ./... -timeout 90s
-go build ./...
-node --test tests/ocs.test.mjs
+CGO_ENABLED=0 go build ./...
+node --test tests/*.test.mjs
 ```
 
-Node.js 仅用于验证 OCS 的 JavaScript handler，不是服务运行依赖。Go 测试覆盖三协议模拟上游、SQLite、并发取消、迁移，以及真实服务进程的认证/缓存重启/优雅退出。CI 同时构建无 CGO 二进制和容器镜像。
+Node.js 22+ 仅用于 OCS、无界面分发约束及发布脚本测试，不是服务运行依赖；无需 npm 包或前端构建。测试使用合成图片、临时 SQLite、本机 mock 上游及隔离服务进程，不需要真实 AI 凭据。
 
-测试不使用真实 AI 密钥。真实服务商与浏览器 OCS 的现场联调需在部署环境完成，见 [docs/validation.md](docs/validation.md)。
-
-## 版本发布
-
-推送正式版本 tag（如 `v0.1.0`）自动创建 Release；推送预发布 tag（如 `v0.1.0-rc.1`）自动创建 Pre-release。Release 附件仅使用 GitHub 自动生成的 Source code（zip/tar.gz）；创建 Release 后，并行发布 `ghcr.io/wchiway/ocs_bank:<tag>` 多架构镜像到 GitHub Packages，以及通过 DeepSeek Responses API 生成中文版本总结。需配置 Actions Secret `DEEPSEEK_API_KEY`，详见 [docs/releases.md](docs/releases.md)。
+自动化代理在开发与诊断时不得读取、上传真实 dotenv，也不得通过运行程序间接加载它；服务正常运行时读取自己的密钥文件不受此限制。模型与 OCS 的现场联调由部署者在自己的配置环境中完成，验收步骤见[验证文档](docs/validation.md)。
